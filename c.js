@@ -5,11 +5,12 @@
       if (window.vatra_connector_ready) return null;
       window.vatra_connector_ready = true;
       var VC = {
-        version: '0.0.2',
+        version: '0.0.3',
         COMPONENT: 'vatra_connector',
         L: {
           Storage: Lampa.Storage,
           Select: Lampa.Select,
+          Bell: Lampa.Bell,
           Noty: Lampa.Noty,
           Input: Lampa.Input,
           Controller: Lampa.Controller,
@@ -55,6 +56,19 @@
         vatra_pairing_title: 'Підключення Vatra',
         vatra_pair_approve_info: 'Підтвердіть код у порталі, потім натисніть «Завершити»',
         vatra_pair_start_failed: 'Помилка початку підключення',
+        vatra_limit_soon_pair_start: 'Майже ліміт старту підключення. Лишилось спроб: {remaining}.',
+        vatra_limit_hit_pair_start: 'Уперлись у ліміт старту підключення. Зачекайте 15 хвилин.',
+        vatra_limit_soon_pair_approve: 'Майже ліміт підтверджень у порталі. Лишилось спроб: {remaining}.',
+        vatra_limit_hit_pair_approve: 'Уперлись у ліміт підтверджень у порталі. Зачекайте 1 годину.',
+        vatra_limit_soon_device_challenge: 'Майже ліміт перевірок пристрою. Лишилось спроб: {remaining}.',
+        vatra_limit_hit_device_challenge: 'Уперлись у ліміт перевірок пристрою. Зачекайте 60 секунд.',
+        vatra_limit_soon_pair_complete: 'Майже ліміт завершення підключення. Лишилось спроб: {remaining}.',
+        vatra_limit_hit_pair_complete: 'Уперлись у ліміт завершення підключення. Потрібно почекати або створити новий код.',
+        vatra_limit_hit_generic: 'Тимчасове обмеження на запити. Трохи зачекайте і спробуйте ще раз.',
+        vatra_error_rate_limited: 'Забагато спроб. Трохи зачекайте і повторіть.',
+        vatra_error_pairing_not_found: 'Код підключення не знайдено.',
+        vatra_error_pairing_expired: 'Код підключення вже прострочений.',
+        vatra_error_generic: 'Сталася помилка запиту',
         vatra_profiles_title: 'Профілі Vatra',
         vatra_profile_switched: 'Профіль переключено',
         vatra_profile_changed: 'Профіль змінено',
@@ -97,6 +111,19 @@
         vatra_pairing_title: 'Vatra Pairing',
         vatra_pair_approve_info: 'Approve code in portal, then press Complete',
         vatra_pair_start_failed: 'Pair start failed',
+        vatra_limit_soon_pair_start: 'Pair start limit is close. Attempts left: {remaining}.',
+        vatra_limit_hit_pair_start: 'Pair start limit reached. Wait 15 minutes.',
+        vatra_limit_soon_pair_approve: 'Pair approval limit is close. Attempts left: {remaining}.',
+        vatra_limit_hit_pair_approve: 'Pair approval limit reached. Wait 1 hour.',
+        vatra_limit_soon_device_challenge: 'Device challenge limit is close. Attempts left: {remaining}.',
+        vatra_limit_hit_device_challenge: 'Device challenge limit reached. Wait 60 seconds.',
+        vatra_limit_soon_pair_complete: 'Pair complete limit is close. Attempts left: {remaining}.',
+        vatra_limit_hit_pair_complete: 'Pair complete limit reached. Wait or start a new pairing code.',
+        vatra_limit_hit_generic: 'Too many requests. Please wait and try again.',
+        vatra_error_rate_limited: 'Too many attempts. Please wait and retry.',
+        vatra_error_pairing_not_found: 'Pairing code not found.',
+        vatra_error_pairing_expired: 'Pairing code has expired.',
+        vatra_error_generic: 'Request failed',
         vatra_profiles_title: 'Vatra Profiles',
         vatra_profile_switched: 'Profile switched',
         vatra_profile_changed: 'Profile changed',
@@ -153,6 +180,18 @@
       };
       VC.notify = function (text) {
         return VC.L.Noty.show(text);
+      };
+      VC.bell = function (text) {
+        var icon = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 'info';
+        var bell = VC.L && VC.L.Bell || window.Lampa && window.Lampa.Bell;
+        if (bell && bell.push) {
+          bell.push({
+            text: text,
+            icon: icon
+          });
+          return;
+        }
+        VC.notify(text);
       };
       VC.reloadAppSoon = function (reason, delayMs) {
         var delay = typeof delayMs === 'number' ? delayMs : 1500;
@@ -308,6 +347,86 @@
     }
 
     function initApi(VC) {
+      var RATE_LIMIT_RULES = {
+        '/connector/v1/pair/start': {
+          limit: 5,
+          windowMs: 15 * 60 * 1000,
+          warnAt: 4,
+          soonKey: 'vatra_limit_soon_pair_start',
+          hitKey: 'vatra_limit_hit_pair_start'
+        },
+        '/connector/v1/pair/approve': {
+          limit: 20,
+          windowMs: 60 * 60 * 1000,
+          warnAt: 16,
+          soonKey: 'vatra_limit_soon_pair_approve',
+          hitKey: 'vatra_limit_hit_pair_approve'
+        },
+        '/connector/v1/device/challenge': {
+          limit: 60,
+          windowMs: 60 * 1000,
+          warnAt: 50,
+          soonKey: 'vatra_limit_soon_device_challenge',
+          hitKey: 'vatra_limit_hit_device_challenge'
+        }
+      };
+      VC._rateLimitState = VC._rateLimitState || {};
+      var rateWindowState = function rateWindowState(path) {
+        var rule = RATE_LIMIT_RULES[path];
+        if (!rule) return null;
+        var now = Date.now();
+        var state = VC._rateLimitState[path];
+        if (!state || now - state.windowStart >= rule.windowMs) {
+          state = {
+            windowStart: now,
+            count: 0,
+            warned: false
+          };
+          VC._rateLimitState[path] = state;
+        }
+        return {
+          rule: rule,
+          state: state
+        };
+      };
+      VC.trackRateLimitProgress = function (path) {
+        var ctx = rateWindowState(path);
+        if (!ctx) return;
+        var rule = ctx.rule,
+          state = ctx.state;
+        state.count += 1;
+        if (state.count >= rule.warnAt && !state.warned) {
+          var remaining = Math.max(rule.limit - state.count, 0);
+          VC.bell(VC.L.Lang.translate(rule.soonKey, {
+            remaining: remaining
+          }));
+          state.warned = true;
+        }
+      };
+      VC.notifyRateLimited = function (path, code) {
+        if (code === 'PAIRING_ATTEMPTS_EXCEEDED') {
+          VC.bell(VC.L.Lang.translate('vatra_limit_hit_pair_complete'));
+          return;
+        }
+        var rule = RATE_LIMIT_RULES[path];
+        if (rule) {
+          VC.bell(VC.L.Lang.translate(rule.hitKey));
+          return;
+        }
+        VC.bell(VC.L.Lang.translate('vatra_limit_hit_generic'));
+      };
+      VC.apiErrorText = function (error, fallbackKey) {
+        var code = error && error.code;
+        var mapped = {
+          RATE_LIMITED: 'vatra_error_rate_limited',
+          PAIRING_ATTEMPTS_EXCEEDED: 'vatra_limit_hit_pair_complete',
+          PAIRING_NOT_FOUND: 'vatra_error_pairing_not_found',
+          PAIRING_EXPIRED: 'vatra_error_pairing_expired'
+        };
+        if (code && mapped[code]) return VC.L.Lang.translate(mapped[code]);
+        if (error && error.message) return error.message;
+        return fallbackKey ? VC.L.Lang.translate(fallbackKey) : VC.L.Lang.translate('vatra_error_generic');
+      };
       VC.refreshToken = function () {
         var refreshToken = VC.L.Storage.get(VC.KEY.refresh, '');
         if (!refreshToken) return Promise.reject(new Error('NO_REFRESH_TOKEN'));
@@ -347,6 +466,7 @@
         if (deviceId) headers['x-device-id'] = deviceId;
         if (deviceKeyId) headers['x-device-key-id'] = deviceKeyId;
         var request = function request() {
+          VC.trackRateLimitProgress(path);
           return fetch(VC.apiBase() + path, {
             method: opts.method || 'GET',
             headers: headers,
@@ -361,6 +481,9 @@
               if (!resp.ok) {
                 var err = new Error(data.code || text || 'HTTP ' + resp.status);
                 err.status = resp.status;
+                err.code = data.code;
+                err.path = path;
+                err.payload = data;
                 throw err;
               }
               return data;
@@ -368,6 +491,9 @@
           });
         };
         return request()["catch"](function (error) {
+          if (error && error.status === 429) {
+            VC.notifyRateLimited(path, error.code);
+          }
           if (error.status !== 401 || opts.skipRefresh) throw error;
           return VC.refreshToken().then(function (newAccessToken) {
             headers.token = newAccessToken;
@@ -382,11 +508,23 @@
     }
 
     function initPairing(VC) {
+      VC._pairCompleteAttempts = VC._pairCompleteAttempts || {};
+      var notePairCompleteAttempt = function notePairCompleteAttempt(code) {
+        VC._pairCompleteAttempts[code] = (VC._pairCompleteAttempts[code] || 0) + 1;
+        return VC._pairCompleteAttempts[code];
+      };
       VC.completePair = function () {
         var code = VC.L.Storage.get(VC.KEY.pairingCode, '');
         if (!code) {
           VC.notify(VC.L.Lang.translate('vatra_no_pending_pair'));
           return;
+        }
+        var attempts = notePairCompleteAttempt(code);
+        if (attempts >= 4) {
+          var remaining = Math.max(5 - attempts, 0);
+          VC.bell(VC.L.Lang.translate('vatra_limit_soon_pair_complete', {
+            remaining: remaining
+          }));
         }
         VC.req('/connector/v1/pair/complete', {
           method: 'POST',
@@ -411,12 +549,13 @@
           }
           if (data.session && data.session.accessToken) {
             VC.saveSession(data.session);
+            delete VC._pairCompleteAttempts[code];
             VC.notify(VC.L.Lang.translate('vatra_connected'));
             return;
           }
           VC.notify(VC.L.Lang.translate('vatra_pair_failed_no_session'));
         })["catch"](function (e) {
-          VC.notify(e.message || VC.L.Lang.translate('vatra_pair_failed'));
+          VC.notify(VC.apiErrorText(e, 'vatra_pair_failed'));
         });
       };
       VC.startPair = function () {
@@ -437,6 +576,7 @@
           }
           VC.L.Storage.set(VC.KEY.pairingCode, code);
           VC.L.Storage.set(VC.KEY.pairTs, Date.now());
+          VC._pairCompleteAttempts[code] = 0;
           VC.L.Select.show({
             title: VC.L.Lang.translate('vatra_pairing_title'),
             items: [{
@@ -457,7 +597,7 @@
             }
           });
         })["catch"](function (e) {
-          VC.notify(e.message || VC.L.Lang.translate('vatra_pair_start_failed'));
+          VC.notify(VC.apiErrorText(e, 'vatra_pair_start_failed'));
         });
       };
     }
