@@ -5,7 +5,7 @@
       if (window.vatra_connector_ready) return null;
       window.vatra_connector_ready = true;
       var VC = {
-        version: '0.0.3',
+        version: '0.0.4',
         COMPONENT: 'vatra_connector',
         L: {
           Storage: Lampa.Storage,
@@ -619,6 +619,16 @@
         if (!profile) return VC.defaultProfileIconSvg();
         return VC.normalizeProfileAvatar(profile.avatar) || VC.defaultProfileIconSvg();
       };
+      VC.profileAvatarDataUri = function (profile) {
+        var svg = VC.profileAvatarHtml(profile);
+        if (!svg || !/^<svg[\s>]/i.test(svg)) return '';
+        return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+      };
+      VC.profileAvatarIconMarkup = function (profile) {
+        var dataUri = VC.profileAvatarDataUri(profile);
+        if (!dataUri) return VC.defaultProfileIconSvg();
+        return '<img class="vatra-profile-avatar" src="' + dataUri + '" alt="" />';
+      };
       VC.normalizeProfiles = function (data) {
         var items = data && (data.items || data.profiles) || [];
         return items.map(function (profile) {
@@ -680,7 +690,7 @@
               profileId: profile.id,
               profileName: profile.name,
               template: 'selectbox_icon',
-              icon: VC.profileAvatarHtml(profile),
+              icon: VC.profileAvatarIconMarkup(profile),
               selected: activeProfile ? activeProfile.id === profile.id : false
             };
           });
@@ -978,7 +988,7 @@
       VC.renderProfileButtonIcon = function (button, profile) {
         if (!button || !button.length) return;
         button.empty();
-        if (VC.profileAvatarHtml) button.append(VC.profileAvatarHtml(profile));else if (VC.L.Template && VC.L.Template.js) button.append(VC.L.Template.js('icon_profile'));else button.append(VC.defaultProfileIconSvg ? VC.defaultProfileIconSvg() : '');
+        if (VC.profileAvatarIconMarkup) button.append(VC.profileAvatarIconMarkup(profile));else if (VC.L.Template && VC.L.Template.js) button.append(VC.L.Template.js('icon_profile'));else button.append(VC.defaultProfileIconSvg ? VC.defaultProfileIconSvg() : '');
       };
       VC.createProfileButton = function () {
         var button = null;
