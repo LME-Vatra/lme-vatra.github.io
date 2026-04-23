@@ -5,7 +5,7 @@
       if (window.vatra_connector_ready) return null;
       window.vatra_connector_ready = true;
       var VC = {
-        version: '0.0.5',
+        version: '0.0.6',
         COMPONENT: 'vatra_connector',
         L: {
           Storage: Lampa.Storage,
@@ -30,6 +30,7 @@
           deviceId: 'vatra_connector_device_id',
           keyId: 'vatra_connector_key_id',
           profileId: 'vatra_connector_profile_id',
+          profilePin: 'vatra_connector_profile_pin',
           pairingCode: 'vatra_connector_pair_code',
           pairTs: 'vatra_connector_pair_ts',
           uid: 'vatra_connector_uid',
@@ -263,7 +264,9 @@
         return VC.L.Storage.get(VC.KEY.token, '');
       };
       VC.profile = function () {
-        return VC.L.Storage.get(VC.KEY.profileId, '');
+        var pinned = VC.L.Storage.get(VC.KEY.profilePin, '');
+        if (pinned) return String(pinned);
+        return String(VC.L.Storage.get(VC.KEY.profileId, '') || '');
       };
       VC.deviceUid = function () {
         var uid = VC.L.Storage.get(VC.KEY.uid, '');
@@ -292,11 +295,14 @@
         return pub;
       };
       VC.saveSession = function (session) {
+        var serverProfileId = String(session.profileId || '');
+        var pinnedProfileId = String(VC.L.Storage.get(VC.KEY.profilePin, '') || '');
         VC.L.Storage.set(VC.KEY.token, session.accessToken || '');
         VC.L.Storage.set(VC.KEY.refresh, session.refreshToken || '');
         VC.L.Storage.set(VC.KEY.deviceId, session.deviceId || '');
         VC.L.Storage.set(VC.KEY.keyId, session.keyId || VC.keyId());
-        VC.L.Storage.set(VC.KEY.profileId, session.profileId || '');
+        VC.L.Storage.set(VC.KEY.profileId, serverProfileId);
+        if (!pinnedProfileId && serverProfileId) VC.L.Storage.set(VC.KEY.profilePin, serverProfileId);
         VC.L.Storage.set(VC.KEY.pairingCode, '');
       };
       VC.disconnect = function () {
@@ -304,6 +310,7 @@
         VC.L.Storage.set(VC.KEY.refresh, '');
         VC.L.Storage.set(VC.KEY.deviceId, '');
         VC.L.Storage.set(VC.KEY.profileId, '');
+        VC.L.Storage.set(VC.KEY.profilePin, '');
         VC.L.Storage.set(VC.KEY.pairingCode, '');
         VC.notify(VC.L.Lang.translate('vatra_disconnected_from'));
       };
@@ -705,11 +712,13 @@
             items: items,
             onSelect: function onSelect(sel) {
               if (!sel.profileId) return;
-              var previousProfileId = String(VC.profile() || '');
+              var previousProfileId = String(VC.L.Storage.get(VC.KEY.profileId, '') || '');
+              var previousProfilePin = String(VC.L.Storage.get(VC.KEY.profilePin, '') || '');
               var nextProfileId = String(sel.profileId);
               var nextProfileSlug = String(sel.profileSlug || '');
-              if (previousProfileId) VC.saveCurrentProfileLocalState(previousProfileId);
+              if (VC.profile()) VC.saveCurrentProfileLocalState(VC.profile());
               VC.L.Storage.set(VC.KEY.profileId, nextProfileId);
+              VC.L.Storage.set(VC.KEY.profilePin, nextProfileId);
               VC.applyProfileLocalState(nextProfileId);
               if (VC.syncHeaderProfileButton) VC.syncHeaderProfileButton();
               VC.req('/connector/v1/profiles/select', {
@@ -722,7 +731,10 @@
                 }
               }).then(function (response) {
                 var serverProfileId = String(response && (response.profileId || response.profile || response.item && response.item.id) || nextProfileId);
-                if (serverProfileId && serverProfileId !== VC.profile()) VC.L.Storage.set(VC.KEY.profileId, serverProfileId);
+                if (serverProfileId) {
+                  VC.L.Storage.set(VC.KEY.profileId, serverProfileId);
+                  VC.L.Storage.set(VC.KEY.profilePin, serverProfileId);
+                }
                 var selectedProfile = profiles.find(function (profile) {
                   return profile.id === String(sel.profileId);
                 });
@@ -747,7 +759,8 @@
                 VC.reloadAppSoon(VC.L.Lang.translate('vatra_profile_changed'));
               })["catch"](function (e) {
                 VC.L.Storage.set(VC.KEY.profileId, previousProfileId || '');
-                if (previousProfileId) VC.applyProfileLocalState(previousProfileId);
+                VC.L.Storage.set(VC.KEY.profilePin, previousProfilePin || '');
+                if (VC.profile()) VC.applyProfileLocalState(VC.profile());
                 if (VC.syncHeaderProfileButton) VC.syncHeaderProfileButton();
                 VC.notify(e.message || VC.L.Lang.translate('vatra_profile_switch_failed'));
               });
@@ -1054,7 +1067,7 @@
         if (VC.L.Storage && VC.L.Storage.listener) {
           VC.L.Storage.listener.follow('change', function (e) {
             if (!e) return;
-            if (e.name === 'account_use' || e.name === 'account_sync' || e.name === VC.KEY.token || e.name === VC.KEY.profileId) {
+            if (e.name === 'account_use' || e.name === 'account_sync' || e.name === VC.KEY.token || e.name === VC.KEY.profileId || e.name === VC.KEY.profilePin) {
               VC.syncHeaderProfileButton();
             }
           });
