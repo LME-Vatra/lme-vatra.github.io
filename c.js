@@ -5,7 +5,7 @@
       if (window.vatra_connector_ready) return null;
       window.vatra_connector_ready = true;
       var VC = {
-        version: '0.0.4',
+        version: '0.0.5',
         COMPONENT: 'vatra_connector',
         L: {
           Storage: Lampa.Storage,
@@ -635,9 +635,11 @@
           var id = String(profile.id || '');
           var name = String(profile.name || '');
           var isDefault = !!(profile.is_default || profile.main);
+          var slug = String(profile.slug || '');
           return {
             id: id,
             name: name,
+            slug: slug,
             avatar: profile.avatar || '',
             isDefault: isDefault
           };
@@ -689,6 +691,7 @@
               title: profile.name + (profile.isDefault ? ' (default)' : ''),
               profileId: profile.id,
               profileName: profile.name,
+              profileSlug: profile.slug,
               template: 'selectbox_icon',
               icon: VC.profileAvatarIconMarkup(profile),
               selected: activeProfile ? activeProfile.id === profile.id : false
@@ -702,31 +705,39 @@
             items: items,
             onSelect: function onSelect(sel) {
               if (!sel.profileId) return;
-              var previousProfileId = VC.profile();
+              var previousProfileId = String(VC.profile() || '');
+              var nextProfileId = String(sel.profileId);
+              var nextProfileSlug = String(sel.profileSlug || '');
               if (previousProfileId) VC.saveCurrentProfileLocalState(previousProfileId);
+              VC.L.Storage.set(VC.KEY.profileId, nextProfileId);
+              VC.applyProfileLocalState(nextProfileId);
+              if (VC.syncHeaderProfileButton) VC.syncHeaderProfileButton();
               VC.req('/connector/v1/profiles/select', {
                 method: 'POST',
                 body: {
-                  profileId: sel.profileId
+                  profileId: nextProfileId,
+                  id: nextProfileId,
+                  profile: nextProfileId,
+                  slug: nextProfileSlug || undefined
                 }
-              }).then(function () {
+              }).then(function (response) {
+                var serverProfileId = String(response && (response.profileId || response.profile || response.item && response.item.id) || nextProfileId);
+                if (serverProfileId && serverProfileId !== VC.profile()) VC.L.Storage.set(VC.KEY.profileId, serverProfileId);
                 var selectedProfile = profiles.find(function (profile) {
                   return profile.id === String(sel.profileId);
                 });
-                VC.L.Storage.set(VC.KEY.profileId, String(sel.profileId));
                 if (selectedProfile) {
                   VC._profilesCache = profiles;
                   VC._profilesCacheAt = Date.now();
                 }
-                VC.applyProfileLocalState(sel.profileId);
                 VC.applyBackupForActiveProfile()["catch"](function () {})["finally"](function () {
-                  VC.saveCurrentProfileLocalState(sel.profileId);
+                  VC.saveCurrentProfileLocalState(VC.profile());
                 });
                 VC.pullCloudPluginsToStorage()["catch"](function () {});
                 if (VC.L.Listener && VC.L.Listener.send) {
                   VC.L.Listener.send('profile_select', {
                     profile: {
-                      id: sel.profileId,
+                      id: VC.profile(),
                       name: sel.profileName || sel.title
                     }
                   });
@@ -735,6 +746,9 @@
                 VC.notify(VC.L.Lang.translate('vatra_profile_switched'));
                 VC.reloadAppSoon(VC.L.Lang.translate('vatra_profile_changed'));
               })["catch"](function (e) {
+                VC.L.Storage.set(VC.KEY.profileId, previousProfileId || '');
+                if (previousProfileId) VC.applyProfileLocalState(previousProfileId);
+                if (VC.syncHeaderProfileButton) VC.syncHeaderProfileButton();
                 VC.notify(e.message || VC.L.Lang.translate('vatra_profile_switch_failed'));
               });
             },
