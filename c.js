@@ -603,13 +603,85 @@
     }
 
     function initProfiles(VC) {
+      var DEFAULT_PROFILE_ICON_SVG = '<svg width="37" height="37" viewBox="0 0 37 37" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="18.5" cy="12" r="6" stroke="white" stroke-width="3"/><path d="M8 30C8.9 24.3 13.3 21 18.5 21C23.7 21 28.1 24.3 29 30" stroke="white" stroke-width="3" stroke-linecap="round"/></svg>';
+      VC.defaultProfileIconSvg = function () {
+        return DEFAULT_PROFILE_ICON_SVG;
+      };
+      VC.normalizeProfileAvatar = function (avatar) {
+        if (typeof avatar !== 'string') return '';
+        var svg = avatar.trim();
+        if (!svg) return '';
+        if (!/^<svg[\s>]/i.test(svg)) return '';
+        if (/<script[\s>]/i.test(svg)) return '';
+        return svg;
+      };
+      VC.profileAvatarHtml = function (profile) {
+        if (!profile) return VC.defaultProfileIconSvg();
+        return VC.normalizeProfileAvatar(profile.avatar) || VC.defaultProfileIconSvg();
+      };
+      VC.normalizeProfiles = function (data) {
+        var items = data && (data.items || data.profiles) || [];
+        return items.map(function (profile) {
+          var id = String(profile.id || '');
+          var name = String(profile.name || '');
+          var isDefault = !!(profile.is_default || profile.main);
+          return {
+            id: id,
+            name: name,
+            avatar: profile.avatar || '',
+            isDefault: isDefault
+          };
+        }).filter(function (profile) {
+          return profile.id;
+        });
+      };
+      VC.getProfiles = function () {
+        var _ref = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {},
+          _ref$force = _ref.force,
+          force = _ref$force === void 0 ? false : _ref$force;
+        var now = Date.now();
+        if (!force && VC._profilesCache && VC._profilesCache.length && now - (VC._profilesCacheAt || 0) < 60000) {
+          return Promise.resolve(VC._profilesCache);
+        }
+        if (!force && VC._profilesRequest) return VC._profilesRequest;
+        VC._profilesRequest = VC.req('/connector/v1/profiles').then(function (data) {
+          var profiles = VC.normalizeProfiles(data);
+          VC._profilesCache = profiles;
+          VC._profilesCacheAt = Date.now();
+          return profiles;
+        })["finally"](function () {
+          VC._profilesRequest = null;
+        });
+        return VC._profilesRequest;
+      };
+      VC.getActiveProfile = function (profiles) {
+        var list = profiles || VC._profilesCache || [];
+        var currentId = String(VC.profile() || '');
+        if (currentId) {
+          var active = list.find(function (profile) {
+            return profile.id === currentId;
+          });
+          if (active) return active;
+        }
+        var defaultProfile = list.find(function (profile) {
+          return profile.isDefault;
+        });
+        if (defaultProfile) return defaultProfile;
+        return list[0] || null;
+      };
       VC.showProfiles = function (backTarget) {
-        VC.req('/connector/v1/profiles').then(function (data) {
-          var items = (data.profiles || []).map(function (profile) {
+        VC.getProfiles({
+          force: true
+        }).then(function (profiles) {
+          var activeProfile = VC.getActiveProfile(profiles);
+          var items = profiles.map(function (profile) {
             return {
-              title: profile.name + (profile.main ? ' (default)' : ''),
+              title: profile.name + (profile.isDefault ? ' (default)' : ''),
               profileId: profile.id,
-              selected: VC.profile() === profile.id
+              profileName: profile.name,
+              template: 'selectbox_icon',
+              icon: VC.profileAvatarHtml(profile),
+              selected: activeProfile ? activeProfile.id === profile.id : false
             };
           });
           items.push({
@@ -628,7 +700,14 @@
                   profileId: sel.profileId
                 }
               }).then(function () {
-                VC.L.Storage.set(VC.KEY.profileId, sel.profileId);
+                var selectedProfile = profiles.find(function (profile) {
+                  return profile.id === String(sel.profileId);
+                });
+                VC.L.Storage.set(VC.KEY.profileId, String(sel.profileId));
+                if (selectedProfile) {
+                  VC._profilesCache = profiles;
+                  VC._profilesCacheAt = Date.now();
+                }
                 VC.applyProfileLocalState(sel.profileId);
                 VC.applyBackupForActiveProfile()["catch"](function () {})["finally"](function () {
                   VC.saveCurrentProfileLocalState(sel.profileId);
@@ -638,10 +717,11 @@
                   VC.L.Listener.send('profile_select', {
                     profile: {
                       id: sel.profileId,
-                      name: sel.title
+                      name: sel.profileName || sel.title
                     }
                   });
                 }
+                if (VC.syncHeaderProfileButton) VC.syncHeaderProfileButton();
                 VC.notify(VC.L.Lang.translate('vatra_profile_switched'));
                 VC.reloadAppSoon(VC.L.Lang.translate('vatra_profile_changed'));
               })["catch"](function (e) {
@@ -895,20 +975,38 @@
     }
 
     function initHeader(VC) {
+      VC.renderProfileButtonIcon = function (button, profile) {
+        if (!button || !button.length) return;
+        button.empty();
+        if (VC.profileAvatarHtml) button.append(VC.profileAvatarHtml(profile));else if (VC.L.Template && VC.L.Template.js) button.append(VC.L.Template.js('icon_profile'));else button.append(VC.defaultProfileIconSvg ? VC.defaultProfileIconSvg() : '');
+      };
       VC.createProfileButton = function () {
         var button = null;
         if (VC.L.Template && VC.L.Template.elem && VC.L.Template.js) {
           button = VC.L.Template.elem('div', {
             "class": 'head__action selector open--profile vatra-managed'
           });
-          button.append(VC.L.Template.js('icon_profile'));
         } else {
-          button = $('<div class="head__action selector open--profile vatra-managed"><svg width="37" height="37" viewBox="0 0 37 37" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="18.5" cy="12" r="6" stroke="white" stroke-width="3"/><path d="M8 30C8.9 24.3 13.3 21 18.5 21C23.7 21 28.1 24.3 29 30" stroke="white" stroke-width="3" stroke-linecap="round"/></svg></div>');
+          button = $('<div class="head__action selector open--profile vatra-managed"></div>');
         }
+        VC.renderProfileButtonIcon(button, null);
         button.on('hover:enter', function () {
           return VC.showProfiles('head');
         });
         return button;
+      };
+      VC.syncProfileButtonAvatar = function () {
+        var button = $('.head .open--profile.vatra-managed').first();
+        if (!button.length) return;
+        if (!VC.getProfiles || !VC.getActiveProfile) {
+          VC.renderProfileButtonIcon(button, null);
+          return;
+        }
+        VC.getProfiles().then(function (profiles) {
+          VC.renderProfileButtonIcon(button, VC.getActiveProfile(profiles));
+        })["catch"](function () {
+          VC.renderProfileButtonIcon(button, VC.getActiveProfile());
+        });
       };
       VC.syncHeaderProfileButton = function () {
         var connected = !!VC.token();
@@ -918,18 +1016,28 @@
           return;
         }
         $('.head .open--profile').not('.vatra-managed').addClass('hide vatra-hidden-by-vatra');
-        if ($('.head .open--profile.vatra-managed').length) return;
-        var head = VC.L.Head && VC.L.Head.render ? VC.L.Head.render() : $('.head');
-        var fullScreen = head.find('.full--screen');
-        var button = VC.createProfileButton();
-        if (fullScreen.length) fullScreen.before(button);else head.find('.head__actions').append(button);
+        var button = $('.head .open--profile.vatra-managed').first();
+        if (!button.length) {
+          var head = VC.L.Head && VC.L.Head.render ? VC.L.Head.render() : $('.head');
+          var fullScreen = head.find('.full--screen');
+          button = VC.createProfileButton();
+          if (fullScreen.length) fullScreen.before(button);else head.find('.head__actions').append(button);
+        }
+        VC.syncProfileButtonAvatar();
       };
       VC.bindHeaderIntegration = function () {
         VC.syncHeaderProfileButton();
         if (VC.L.Storage && VC.L.Storage.listener) {
           VC.L.Storage.listener.follow('change', function (e) {
             if (!e) return;
-            if (e.name === 'account_use' || e.name === 'account_sync' || e.name === VC.KEY.token) VC.syncHeaderProfileButton();
+            if (e.name === 'account_use' || e.name === 'account_sync' || e.name === VC.KEY.token || e.name === VC.KEY.profileId) {
+              VC.syncHeaderProfileButton();
+            }
+          });
+        }
+        if (VC.L.Listener && VC.L.Listener.follow) {
+          VC.L.Listener.follow('profile_select', function () {
+            VC.syncProfileButtonAvatar();
           });
         }
       };
