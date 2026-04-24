@@ -5,7 +5,7 @@
       if (window.vatra_connector_ready) return null;
       window.vatra_connector_ready = true;
       var VC = {
-        version: '0.0.8',
+        version: '0.0.9',
         COMPONENT: 'vatra_connector',
         L: {
           Storage: Lampa.Storage,
@@ -1572,6 +1572,30 @@
     }
 
     function initStateSync(VC) {
+      // === PATCH TMDB.img: fix double-slash bug =========================
+      // Original Lampa code: baseimg = 't/p/'+poster_size+'/' → src starts with '/'
+      // Result: image.tmdb.org/t/p/w300//poster.jpg (broken)
+      // We patch to ensure exactly one slash between size and poster_path.
+      if (VC.L && VC.L.TMDB && VC.L.TMDB.img) {
+        VC.L.TMDB.img;
+        VC.L.TMDB.img = function (src, size) {
+          if (!src) return '';
+          var posterSize = VC.L.Storage.field('poster_size') || 'w300';
+          var path = 't/p/' + posterSize;
+          if (size) path = path.replace(new RegExp(posterSize, 'g'), size);
+          // Ensure single slash: strip leading slash from src
+          var cleanSrc = src.charAt(0) === '/' ? src.substring(1) : src;
+          return VC.L.TMDB.image(path + '/' + cleanSrc);
+        };
+      }
+      // Also patch Lampa.Api.img which delegates to TMDB.img
+      if (VC.L && VC.L.Api && VC.L.Api.img) {
+        VC.L.Api.img = function (src, size) {
+          return VC.L.TMDB.img(src, size);
+        };
+      }
+      // ==================================================================
+
       var BUCKET_TO_LAMPA = {
         bookmarks: 'book',
         liked: 'like',
@@ -1636,6 +1660,12 @@
         }
         return card;
       };
+      VC.fixCardImg = function (card) {
+        if (!card || !card.poster_path) return card;
+        // Use the patched TMDB.img which produces correct URL
+        card.img = VC.L.TMDB.img(card.poster_path, VC.L.Storage.field('poster_size') || 'w300');
+        return card;
+      };
       VC.applyCloudBookmarks = function (items) {
         if (!Array.isArray(items)) return;
         VC._applyingCloudState = true;
@@ -1659,6 +1689,11 @@
             if (!cards.some(function (existing) {
               return String(existing.id) === String(card.id);
             })) cards.push(card);
+          });
+
+          // Fix img URLs in all cards (both existing and newly added) to avoid double-slash bug
+          cards.forEach(function (c) {
+            return VC.fixCardImg(c);
           });
           next.card = cards;
           VC.L.Storage.set('favorite', next, true);
