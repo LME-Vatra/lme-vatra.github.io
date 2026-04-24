@@ -256,6 +256,16 @@
       };
     }
 
+    function _typeof(o) {
+      "@babel/helpers - typeof";
+
+      return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) {
+        return typeof o;
+      } : function (o) {
+        return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o;
+      }, _typeof(o);
+    }
+
     function initState(VC) {
       VC.apiBase = function () {
         return 'https://be.vatra.ovh';
@@ -263,10 +273,31 @@
       VC.token = function () {
         return VC.L.Storage.get(VC.KEY.token, '');
       };
+      VC.normalizeProfileId = function (value) {
+        if (!value) return '';
+        if (_typeof(value) === 'object') {
+          return String(value.id || value.profileId || value.profile_id || '').trim();
+        }
+        var raw = String(value).trim();
+        if (!raw || raw === '[object Object]') return '';
+        if (raw[0] === '{') {
+          try {
+            var parsed = JSON.parse(raw);
+            return VC.normalizeProfileId(parsed);
+          } catch (e) {}
+        }
+        return raw;
+      };
+      VC.storageProfileId = function (key) {
+        var raw = VC.L.Storage.get(key, '');
+        var normalized = VC.normalizeProfileId(raw);
+        if (raw && normalized !== raw) VC.L.Storage.set(key, normalized, true);
+        return normalized;
+      };
       VC.profile = function () {
-        var pinned = VC.L.Storage.get(VC.KEY.profilePin, '');
+        var pinned = VC.storageProfileId(VC.KEY.profilePin);
         if (pinned) return String(pinned);
-        return String(VC.L.Storage.get(VC.KEY.profileId, '') || '');
+        return String(VC.storageProfileId(VC.KEY.profileId) || '');
       };
       VC.deviceUid = function () {
         var uid = VC.L.Storage.get(VC.KEY.uid, '');
@@ -295,8 +326,8 @@
         return pub;
       };
       VC.saveSession = function (session) {
-        var serverProfileId = String(session.profileId || '');
-        var pinnedProfileId = String(VC.L.Storage.get(VC.KEY.profilePin, '') || '');
+        var serverProfileId = VC.normalizeProfileId(session.profileId || session.profile);
+        var pinnedProfileId = VC.storageProfileId(VC.KEY.profilePin);
         VC.L.Storage.set(VC.KEY.token, session.accessToken || '');
         VC.L.Storage.set(VC.KEY.refresh, session.refreshToken || '');
         VC.L.Storage.set(VC.KEY.deviceId, session.deviceId || '');
@@ -314,16 +345,6 @@
         VC.L.Storage.set(VC.KEY.pairingCode, '');
         VC.notify(VC.L.Lang.translate('vatra_disconnected_from'));
       };
-    }
-
-    function _typeof(o) {
-      "@babel/helpers - typeof";
-
-      return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) {
-        return typeof o;
-      } : function (o) {
-        return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o;
-      }, _typeof(o);
     }
 
     function initProfileState(VC) {
@@ -743,10 +764,11 @@
             items: items,
             onSelect: function onSelect(sel) {
               if (!sel.profileId) return;
-              var previousProfileId = String(VC.L.Storage.get(VC.KEY.profileId, '') || '');
-              var previousProfilePin = String(VC.L.Storage.get(VC.KEY.profilePin, '') || '');
-              var nextProfileId = String(sel.profileId);
+              var previousProfileId = VC.storageProfileId(VC.KEY.profileId);
+              var previousProfilePin = VC.storageProfileId(VC.KEY.profilePin);
+              var nextProfileId = VC.normalizeProfileId(sel.profileId);
               var nextProfileSlug = String(sel.profileSlug || '');
+              if (!nextProfileId) return;
               if (VC.profile()) VC.saveCurrentProfileLocalState(VC.profile());
               VC.L.Storage.set(VC.KEY.profileId, nextProfileId);
               VC.L.Storage.set(VC.KEY.profilePin, nextProfileId);
@@ -761,7 +783,7 @@
                   slug: nextProfileSlug || undefined
                 }
               }).then(function (response) {
-                var serverProfileId = String(response && (response.profileId || response.profile || response.item && response.item.id) || nextProfileId);
+                var serverProfileId = VC.normalizeProfileId(response && (response.profileId || response.profile || response.item)) || nextProfileId;
                 if (serverProfileId) {
                   VC.L.Storage.set(VC.KEY.profileId, serverProfileId);
                   VC.L.Storage.set(VC.KEY.profilePin, serverProfileId);
