@@ -256,6 +256,44 @@
       };
     }
 
+    function _arrayLikeToArray(r, a) {
+      (null == a || a > r.length) && (a = r.length);
+      for (var e = 0, n = Array(a); e < a; e++) n[e] = r[e];
+      return n;
+    }
+    function _arrayWithHoles(r) {
+      if (Array.isArray(r)) return r;
+    }
+    function _iterableToArrayLimit(r, l) {
+      var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"];
+      if (null != t) {
+        var e,
+          n,
+          i,
+          u,
+          a = [],
+          f = true,
+          o = false;
+        try {
+          if (i = (t = t.call(r)).next, 0 === l) ; else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0);
+        } catch (r) {
+          o = true, n = r;
+        } finally {
+          try {
+            if (!f && null != t.return && (u = t.return(), Object(u) !== u)) return;
+          } finally {
+            if (o) throw n;
+          }
+        }
+        return a;
+      }
+    }
+    function _nonIterableRest() {
+      throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+    }
+    function _slicedToArray(r, e) {
+      return _arrayWithHoles(r) || _iterableToArrayLimit(r, e) || _unsupportedIterableToArray(r, e) || _nonIterableRest();
+    }
     function _typeof(o) {
       "@babel/helpers - typeof";
 
@@ -264,6 +302,13 @@
       } : function (o) {
         return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o;
       }, _typeof(o);
+    }
+    function _unsupportedIterableToArray(r, a) {
+      if (r) {
+        if ("string" == typeof r) return _arrayLikeToArray(r, a);
+        var t = {}.toString.call(r).slice(8, -1);
+        return "Object" === t && r.constructor && (t = r.constructor.name), "Map" === t || "Set" === t ? Array.from(r) : "Arguments" === t || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(t) ? _arrayLikeToArray(r, a) : void 0;
+      }
     }
 
     function initState(VC) {
@@ -1203,12 +1248,133 @@
     }
 
     function initStateSync(VC) {
+      var BUCKET_TO_LAMPA = {
+        bookmarks: 'book',
+        liked: 'like',
+        later: 'wath',
+        hidden: 'history',
+        watch: 'look',
+        watched: 'viewed',
+        planned: 'scheduled',
+        "continue": 'continued',
+        dropped: 'thrown'
+      };
+      var LAMPA_TO_BUCKET = {
+        book: 'bookmarks',
+        like: 'liked',
+        wath: 'later',
+        history: 'watched',
+        look: 'watch',
+        viewed: 'watched',
+        scheduled: 'planned',
+        continued: 'continue',
+        thrown: 'dropped'
+      };
+      VC.mediaTypeFromCard = function (card) {
+        if (!card) return '';
+        var explicit = String(card.media_type || card.type || card.category || card.cat || '').toLowerCase();
+        if (explicit === 'movie' || explicit === 'tv') return explicit;
+        if (card.number_of_seasons || card.first_air_date || card.original_name) return 'tv';
+        if (card.release_date || card.title || card.original_title) return 'movie';
+        var method = String(card.method || '').toLowerCase();
+        if (method === 'tv' || method === 'movie') return method;
+        return '';
+      };
       VC.contentKeyFromCard = function (card) {
         if (!card) return '';
         var source = card.source || card.source_type || 'tmdb';
         var id = card.id || card.card_id || card.kinopoisk_id || '';
+        var mediaType = VC.mediaTypeFromCard(card);
         if (!id) return '';
-        return source + ':' + id;
+        return [source, mediaType, id].filter(Boolean).join(':');
+      };
+      VC.cardFromContentKey = function (contentKey) {
+        var parts = String(contentKey || '').split(':').map(function (part) {
+          return part.trim();
+        }).filter(Boolean);
+        if (parts.length < 2) return null;
+        var source = parts[0];
+        var hasMediaType = parts[1] === 'movie' || parts[1] === 'tv';
+        var id = hasMediaType ? parts[2] : parts[1];
+        var mediaType = hasMediaType ? parts[1] : '';
+        if (!source || !id) return null;
+        var numericId = /^\d+$/.test(id) ? Number(id) : id;
+        var card = {
+          id: numericId,
+          source: source
+        };
+        if (mediaType === 'tv') {
+          card.method = 'tv';
+          card.original_name = '';
+        } else if (mediaType === 'movie') {
+          card.method = 'movie';
+          card.title = '';
+        }
+        return card;
+      };
+      VC.applyCloudBookmarks = function (items) {
+        if (!Array.isArray(items)) return;
+        VC._applyingCloudState = true;
+        try {
+          var favorite = VC.L.Storage.get('favorite', '{}');
+          var next = favorite && _typeof(favorite) === 'object' && !Array.isArray(favorite) ? favorite : {};
+          var cards = Array.isArray(next.card) ? next.card : [];
+          Object.keys(BUCKET_TO_LAMPA).forEach(function (bucket) {
+            var where = BUCKET_TO_LAMPA[bucket];
+            next[where] = [];
+          });
+          items.forEach(function (item) {
+            if (!item || item.profile_id !== VC.profile()) return;
+            var where = BUCKET_TO_LAMPA[item.bucket];
+            var card = VC.cardFromContentKey(item.content_key);
+            if (!where || !card) return;
+            if (!Array.isArray(next[where])) next[where] = [];
+            if (!next[where].some(function (id) {
+              return String(id) === String(card.id);
+            })) next[where].unshift(card.id);
+            if (!cards.some(function (existing) {
+              return String(existing.id) === String(card.id);
+            })) cards.push(card);
+          });
+          next.card = cards;
+          VC.L.Storage.set('favorite', next, true);
+          VC.refreshProfileRuntimeState();
+        } finally {
+          VC._applyingCloudState = false;
+        }
+      };
+      VC.applyCloudProgress = function (items) {
+        if (!Array.isArray(items) || !Lampa.Timeline || !Lampa.Timeline.update) return;
+        VC._applyingCloudState = true;
+        try {
+          items.forEach(function (item) {
+            if (!item || item.profile_id !== VC.profile()) return;
+            var contentKey = String(item.content_key || '');
+            if (contentKey.indexOf('timeline:') !== 0) return;
+            var hash = contentKey.slice('timeline:'.length);
+            if (!hash) return;
+            Lampa.Timeline.update({
+              hash: hash,
+              percent: Number(item.progress_percent || 0),
+              time: Number(item.position_seconds || 0),
+              duration: Number(item.duration_seconds || 0),
+              profile: item.profile_id,
+              received: true
+            });
+          });
+        } finally {
+          VC._applyingCloudState = false;
+        }
+      };
+      VC.loadCloudState = function () {
+        if (!VC.token() || !VC.profile()) return Promise.resolve();
+        return Promise.all([VC.req('/state/bookmarks?profileId=' + encodeURIComponent(VC.profile())), VC.req('/state/progress?profileId=' + encodeURIComponent(VC.profile()))]).then(function (_ref) {
+          var _ref2 = _slicedToArray(_ref, 2),
+            bookmarks = _ref2[0],
+            progress = _ref2[1];
+          VC.applyCloudBookmarks(bookmarks && bookmarks.items || []);
+          VC.applyCloudProgress(progress && progress.items || []);
+        });
       };
       VC.scheduleStateSync = function (key, fn, delay) {
         var ms = typeof delay === 'number' ? delay : 700;
@@ -1216,6 +1382,7 @@
         VC._stateSyncTimers[key] = setTimeout(fn, ms);
       };
       VC.syncTimelineState = function (data) {
+        if (VC._applyingCloudState) return;
         if (!VC.token()) return;
         var profileId = VC.profile();
         if (!profileId) return;
@@ -1256,6 +1423,7 @@
         });
       };
       VC.syncFavoriteState = function (event) {
+        if (VC._applyingCloudState) return;
         if (!VC.token()) return;
         var profileId = VC.profile();
         if (!profileId) return;
@@ -1265,7 +1433,7 @@
         var contentKey = VC.contentKeyFromCard(card);
         if (!contentKey) return;
         var bucket = event.type || 'bookmarks';
-        if (bucket === 'wath') bucket = 'watch';
+        bucket = LAMPA_TO_BUCKET[bucket] || bucket;
         VC.scheduleStateSync('bookmark:' + contentKey + ':' + bucket, function () {
           VC.req('/state/bookmarks', {
             method: 'PUT',
@@ -1279,6 +1447,8 @@
       };
       VC.bindStateSync = function () {
         if (!VC.L.Listener || !VC.L.Listener.follow) return;
+        VC.loadCloudState()["catch"](function () {});
+        VC.connectStateRealtime();
         VC.L.Listener.follow('state:changed', function (event) {
           if (!event) return;
           if (event.target === 'timeline' && event.reason === 'update' && event.data) {
@@ -1287,6 +1457,40 @@
           }
           if (event.target === 'favorite') VC.syncFavoriteState(event);
         });
+        VC.L.Listener.follow('profile_select', function () {
+          VC.loadCloudState()["catch"](function () {});
+          VC.connectStateRealtime();
+        });
+      };
+      VC.connectStateRealtime = function () {
+        if (!VC.token() || VC._stateRealtimeConnecting) return;
+        if (VC._stateRealtime && VC._stateRealtime.readyState <= 1) return;
+        if (typeof WebSocket === 'undefined') return;
+        var base = VC.apiBase().replace(/^http/, 'ws');
+        VC._stateRealtimeConnecting = true;
+        VC._stateRealtime = new WebSocket(base + '/state/realtime?token=' + encodeURIComponent(VC.token()));
+        VC._stateRealtime.onopen = function () {
+          VC._stateRealtimeConnecting = false;
+        };
+        VC._stateRealtime.onmessage = function (event) {
+          var message = {};
+          try {
+            message = JSON.parse(event.data || '{}');
+          } catch (e) {}
+          if (message.method !== 'state' || !message.data) return;
+          if (message.data.profileId && message.data.profileId !== VC.profile()) return;
+          VC.loadCloudState()["catch"](function () {});
+        };
+        VC._stateRealtime.onclose = function () {
+          VC._stateRealtimeConnecting = false;
+          VC._stateRealtime = null;
+          setTimeout(function () {
+            return VC.connectStateRealtime();
+          }, 5000);
+        };
+        VC._stateRealtime.onerror = function () {
+          VC._stateRealtimeConnecting = false;
+        };
       };
     }
 
