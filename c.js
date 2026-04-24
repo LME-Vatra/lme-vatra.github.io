@@ -5,7 +5,7 @@
       if (window.vatra_connector_ready) return null;
       window.vatra_connector_ready = true;
       var VC = {
-        version: '0.0.9',
+        version: '0.0.91',
         COMPONENT: 'vatra_connector',
         L: {
           Storage: Lampa.Storage,
@@ -1600,12 +1600,12 @@
         bookmarks: 'book',
         liked: 'like',
         later: 'wath',
-        hidden: 'history',
         watch: 'look',
-        watched: 'viewed',
+        watched: 'history',
         planned: 'scheduled',
         "continue": 'continued',
         dropped: 'thrown'
+        // hidden bucket in Vatra has no equivalent in Lampa (skip)
       };
       var LAMPA_TO_BUCKET = {
         book: 'bookmarks',
@@ -1614,6 +1614,7 @@
         history: 'watched',
         look: 'watch',
         viewed: 'watched',
+        // viewed maps to watched (both are "already watched")
         scheduled: 'planned',
         continued: 'continue',
         thrown: 'dropped'
