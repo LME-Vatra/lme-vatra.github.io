@@ -5,7 +5,7 @@
       if (window.vatra_connector_ready) return null;
       window.vatra_connector_ready = true;
       var VC = {
-        version: '0.0.6',
+        version: '0.0.7',
         COMPONENT: 'vatra_connector',
         L: {
           Storage: Lampa.Storage,
@@ -341,15 +341,9 @@
         if (Lampa.Favorite && Lampa.Favorite.read) Lampa.Favorite.read(true);
         if (Lampa.Timeline && Lampa.Timeline.read) Lampa.Timeline.read(true);
       };
-      VC.applyBackupForActiveProfile = function () {
-        return VC.req('/connector/v1/backup/import').then(function (data) {
-          var items = data && data.data ? data.data : {};
-          Object.keys(items).forEach(function (key) {
-            return localStorage.setItem(key, items[key]);
-          });
-          if (Lampa.Favorite && Lampa.Favorite.read) Lampa.Favorite.read(true);
-          if (Lampa.Timeline && Lampa.Timeline.read) Lampa.Timeline.read(true);
-        });
+      VC.refreshProfileRuntimeState = function () {
+        if (Lampa.Favorite && Lampa.Favorite.read) Lampa.Favorite.read(true);
+        if (Lampa.Timeline && Lampa.Timeline.read) Lampa.Timeline.read(true);
       };
     }
 
@@ -742,10 +736,8 @@
                   VC._profilesCache = profiles;
                   VC._profilesCacheAt = Date.now();
                 }
-                VC.applyBackupForActiveProfile()["catch"](function () {})["finally"](function () {
-                  VC.saveCurrentProfileLocalState(VC.profile());
-                });
-                VC.pullCloudPluginsToStorage()["catch"](function () {});
+                VC.saveCurrentProfileLocalState(VC.profile());
+                VC.refreshProfileRuntimeState();
                 if (VC.L.Listener && VC.L.Listener.send) {
                   VC.L.Listener.send('profile_select', {
                     profile: {
@@ -776,15 +768,25 @@
     }
 
     function initBackup(VC) {
+      VC.BACKUP_PROTECTED_KEYS = [VC.KEY.token, VC.KEY.refresh, VC.KEY.deviceId, VC.KEY.keyId, VC.KEY.profileId, VC.KEY.profilePin, VC.KEY.pairingCode, VC.KEY.pairTs, VC.KEY.uid, VC.KEY.pub];
+      VC.isBackupProtectedKey = function (key) {
+        return VC.BACKUP_PROTECTED_KEYS.indexOf(key) !== -1;
+      };
+      VC.importBackupItem = function (key, value) {
+        if (VC.isBackupProtectedKey(key)) return false;
+        if (key === 'plugins') {
+          var plugins = VC.mergeProtectedPlugins ? VC.mergeProtectedPlugins(VC.parsePluginBackupValue(value)) : value;
+          VC.L.Storage.set('plugins', plugins, true);
+          return true;
+        }
+        localStorage.setItem(key, value);
+        return true;
+      };
       VC.backupExport = function () {
         VC.ensureCubSafe(VC.L.Lang.translate('vatra_backup_export'), function () {
           var payload = {};
-          var skip = {
-            vatra_connector_token: true,
-            vatra_connector_refresh: true
-          };
           Object.keys(localStorage).forEach(function (key) {
-            if (skip[key]) return;
+            if (VC.isBackupProtectedKey(key)) return;
             payload[key] = localStorage.getItem(key);
           });
           VC.req('/connector/v1/backup/export', {
@@ -809,8 +811,7 @@
             var items = data.data || {};
             var imported = 0;
             Object.keys(items).forEach(function (key) {
-              localStorage.setItem(key, items[key]);
-              imported += 1;
+              if (VC.importBackupItem(key, items[key])) imported += 1;
             });
             VC.notify(VC.L.Lang.translate('vatra_backup_imported_count', {
               count: imported
@@ -846,6 +847,31 @@
           if (VC.PROTECTED_PLUGIN_URLS.indexOf(url) !== -1) protectedMap[url] = plugin;
         });
         return protectedMap;
+      };
+      VC.mergeProtectedPlugins = function (list) {
+        var map = {};
+        VC.normalizePlugins(list).forEach(function (plugin) {
+          return map[plugin.url] = plugin;
+        });
+        var protectedMap = VC.collectProtectedPlugins();
+        Object.keys(protectedMap).forEach(function (url) {
+          return map[url] = protectedMap[url];
+        });
+        return Object.keys(map).map(function (key) {
+          return map[key];
+        });
+      };
+      VC.parsePluginBackupValue = function (value) {
+        if (Array.isArray(value)) return value;
+        if (typeof value === 'string') {
+          try {
+            var parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch (e) {
+            return [];
+          }
+        }
+        return [];
       };
       VC.normalizePlugins = function (list) {
         var source = Array.isArray(list) ? list : [];
@@ -883,20 +909,7 @@
         return VC.req('/connector/v1/plugins').then(function (data) {
           var cloud = VC.normalizePlugins(data.plugins || []);
           var local = VC.normalizePlugins(VC.L.Storage.get('plugins', '[]'));
-          var protectedMap = VC.collectProtectedPlugins();
-          var map = {};
-          local.forEach(function (plugin) {
-            return map[plugin.url] = plugin;
-          });
-          cloud.forEach(function (plugin) {
-            return map[plugin.url] = plugin;
-          });
-          Object.keys(protectedMap).forEach(function (url) {
-            return map[url] = protectedMap[url];
-          });
-          var merged = Object.keys(map).map(function (key) {
-            return map[key];
-          });
+          var merged = VC.mergeProtectedPlugins([].concat(local, cloud));
           VC._skipPluginPushOnce = true;
           VC.L.Storage.set('plugins', merged);
           return merged;
@@ -1212,12 +1225,14 @@
         var syncTimer = 0;
         if (VC.profile()) {
           VC.applyProfileLocalState(VC.profile());
-          VC.applyBackupForActiveProfile()["catch"](function () {});
+          VC.refreshProfileRuntimeState();
         }
-        VC.pullCloudPluginsToStorage()["catch"](function () {});
         if (VC.L.Listener && VC.L.Listener.follow) {
           VC.L.Listener.follow('profile_select', function () {
-            VC.pullCloudPluginsToStorage()["catch"](function () {});
+            if (VC.profile()) {
+              VC.applyProfileLocalState(VC.profile());
+              VC.refreshProfileRuntimeState();
+            }
           });
         }
         if (VC.L.Storage && VC.L.Storage.listener) {
