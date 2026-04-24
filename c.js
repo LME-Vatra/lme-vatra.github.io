@@ -888,6 +888,11 @@
       VC.normalizePluginUrl = function (url) {
         return String(url || '').trim();
       };
+      VC.pluginsSignature = function (list) {
+        return VC.normalizePlugins(list).map(function (plugin) {
+          return [plugin.url, plugin.status ? 1 : 0, plugin.name || plugin.url].join('|');
+        }).sort().join('\n');
+      };
       VC.collectProtectedPlugins = function () {
         var protectedMap = {};
         var localList = VC.normalizePlugins(VC.L.Storage.get('plugins', '[]'));
@@ -956,7 +961,7 @@
         });
       };
       VC.pushPluginsToCloud = function (list) {
-        var normalized = VC.normalizePlugins(list);
+        var normalized = VC.mergeProtectedPlugins(list);
         return VC.req('/connector/v1/plugins/sync', {
           method: 'POST',
           body: {
@@ -964,14 +969,27 @@
           }
         });
       };
+      VC.setPluginsIfChanged = function (plugins) {
+        var local = VC.normalizePlugins(VC.L.Storage.get('plugins', '[]'));
+        var merged = VC.mergeProtectedPlugins([].concat(local, plugins));
+        if (VC.pluginsSignature(local) === VC.pluginsSignature(merged)) {
+          return {
+            changed: false,
+            plugins: merged
+          };
+        }
+        VC._skipPluginPushOnce = true;
+        VC.L.Storage.set('plugins', merged);
+        return {
+          changed: true,
+          plugins: merged
+        };
+      };
       VC.pullCloudPluginsToStorage = function () {
         return VC.req('/connector/v1/plugins').then(function (data) {
           var cloud = VC.normalizePlugins(data.plugins || []);
-          var local = VC.normalizePlugins(VC.L.Storage.get('plugins', '[]'));
-          var merged = VC.mergeProtectedPlugins([].concat(local, cloud));
-          VC._skipPluginPushOnce = true;
-          VC.L.Storage.set('plugins', merged);
-          return merged;
+          var result = VC.setPluginsIfChanged(cloud);
+          return result.plugins;
         });
       };
       VC.syncPlugins = function () {
@@ -1273,7 +1291,9 @@
     }
 
     function initMain(VC) {
-      VC.AUTO_PUSH_PLUGINS = false;
+      VC.AUTO_PUSH_PLUGINS = true;
+      VC.AUTO_PULL_PLUGINS = true;
+      VC.PLUGIN_SYNC_POLL_MS = 60000;
       VC.removeLegacyMenuButton = function () {
         $('.menu .menu__list:eq(0) .menu__item').each(function () {
           var text = $(this).find('.menu__text').text().trim();
@@ -1282,15 +1302,45 @@
       };
       VC.bindProfileAndPlugins = function () {
         var syncTimer = 0;
+        var pullTimer = 0;
+        var pullBusy = false;
+        var pullPlugins = function pullPlugins() {
+          if (!VC.AUTO_PULL_PLUGINS) return;
+          if (!VC.token() || !VC.profile()) return;
+          if (pullBusy) return;
+          var before = VC.pluginsSignature(VC.L.Storage.get('plugins', '[]'));
+          pullBusy = true;
+          VC.pullCloudPluginsToStorage().then(function (plugins) {
+            var after = VC.pluginsSignature(plugins);
+            if (before !== after) {
+              VC.reloadAppSoon(VC.L.Lang.translate('vatra_plugins_synced'));
+            }
+          })["catch"](function () {})["finally"](function () {
+            pullBusy = false;
+          });
+        };
+        var schedulePluginPolling = function schedulePluginPolling() {
+          clearInterval(pullTimer);
+          if (!VC.AUTO_PULL_PLUGINS || !VC.token() || !VC.profile()) return;
+          pullTimer = setInterval(function () {
+            pullPlugins();
+          }, VC.PLUGIN_SYNC_POLL_MS);
+        };
         if (VC.profile()) {
           VC.applyProfileLocalState(VC.profile());
           VC.refreshProfileRuntimeState();
+          setTimeout(function () {
+            pullPlugins();
+            schedulePluginPolling();
+          }, 1500);
         }
         if (VC.L.Listener && VC.L.Listener.follow) {
           VC.L.Listener.follow('profile_select', function () {
             if (VC.profile()) {
               VC.applyProfileLocalState(VC.profile());
               VC.refreshProfileRuntimeState();
+              pullPlugins();
+              schedulePluginPolling();
             }
           });
         }
@@ -1305,9 +1355,9 @@
             }
             clearTimeout(syncTimer);
             syncTimer = setTimeout(function () {
-              var localPlugins = VC.L.Storage.get('plugins', '[]');
+              var localPlugins = VC.mergeProtectedPlugins(VC.L.Storage.get('plugins', '[]'));
               VC.pushPluginsToCloud(localPlugins).then(function () {
-                VC.reloadAppSoon(VC.L.Lang.translate('vatra_plugins_synced'));
+                VC.notify(VC.L.Lang.translate('vatra_plugins_synced_dot'));
               })["catch"](function (error) {
                 VC.notify(error.message || VC.L.Lang.translate('vatra_plugin_sync_failed'));
               });
