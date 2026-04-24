@@ -1562,7 +1562,12 @@
         // Account.Bookmarks.update() loads dump/changelog from cloud and updates Favorite state.
         // Timeline state is automatically handled by Account.Timeline (initialized alongside Bookmarks).
         if (Lampa && Lampa.Account && Lampa.Account.Bookmarks && Lampa.Account.Bookmarks.update) {
-          return Lampa.Account.Bookmarks.update();
+          // Wrap in Promise to guarantee return value even if Bookmarks.update doesn't return one
+          return new Promise(function (resolve) {
+            Lampa.Account.Bookmarks.update(function () {
+              return resolve();
+            });
+          });
         }
         return Promise.resolve();
       };
