@@ -5,7 +5,7 @@
       if (window.vatra_connector_ready) return null;
       window.vatra_connector_ready = true;
       var VC = {
-        version: '0.0.91',
+        version: '0.0.7',
         COMPONENT: 'vatra_connector',
         L: {
           Storage: Lampa.Storage,
@@ -263,9 +263,6 @@
       for (var e = 0, n = Array(a); e < a; e++) n[e] = r[e];
       return n;
     }
-    function _arrayWithHoles(r) {
-      if (Array.isArray(r)) return r;
-    }
     function _createForOfIteratorHelper(r, e) {
       var t = "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"];
       if (!t) {
@@ -313,36 +310,6 @@
           }
         }
       };
-    }
-    function _iterableToArrayLimit(r, l) {
-      var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"];
-      if (null != t) {
-        var e,
-          n,
-          i,
-          u,
-          a = [],
-          f = true,
-          o = false;
-        try {
-          if (i = (t = t.call(r)).next, 0 === l) ; else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0);
-        } catch (r) {
-          o = true, n = r;
-        } finally {
-          try {
-            if (!f && null != t.return && (u = t.return(), Object(u) !== u)) return;
-          } finally {
-            if (o) throw n;
-          }
-        }
-        return a;
-      }
-    }
-    function _nonIterableRest() {
-      throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
-    }
-    function _slicedToArray(r, e) {
-      return _arrayWithHoles(r) || _iterableToArrayLimit(r, e) || _unsupportedIterableToArray(r, e) || _nonIterableRest();
     }
     function _typeof(o) {
       "@babel/helpers - typeof";
@@ -443,56 +410,36 @@
     }
 
     function initProfileState(VC) {
-      VC.PROFILE_STATE_KEYS = ['favorite', 'file_view', 'recomends_scan', 'recomends_list', 'timetable', 'account_bookmarks'];
+      VC.PROFILE_STATE_KEYS = [
+        // Connector-specific keys only — Lampa state (favorite, timetable, file_view, etc.)
+        // is now managed natively by Lampa APIs, not stored in vatra_profile_state_*
+      ];
       VC.PROFILE_STATE_DEFAULTS = {
-        favorite: {},
-        file_view: {},
-        recomends_scan: [],
-        recomends_list: [],
-        timetable: [],
-        account_bookmarks: []
+        // No defaults — Lampa handles its own state
       };
-      VC.profileStateStorageKey = function (profileId) {
-        return 'vatra_profile_state_' + String(profileId || 'default');
-      };
-      VC.cloneProfileStateDefault = function (key) {
-        var value = VC.PROFILE_STATE_DEFAULTS[key];
-        if (Array.isArray(value)) return [];
-        if (value && _typeof(value) === 'object') return {};
-        return value;
-      };
-      VC.normalizeProfileStateValue = function (key, value) {
-        var fallback = VC.cloneProfileStateDefault(key);
-        if (Array.isArray(fallback)) return Array.isArray(value) ? value : fallback;
-        if (fallback && _typeof(fallback) === 'object') {
-          return value && _typeof(value) === 'object' && !Array.isArray(value) ? value : fallback;
-        }
-        return typeof value === 'undefined' || value === null ? fallback : value;
-      };
-      VC.readProfileStateSnapshot = function (profileId) {
-        var snapshot = VC.L.Storage.get(VC.profileStateStorageKey(profileId), '{}');
-        return snapshot && _typeof(snapshot) === 'object' && !Array.isArray(snapshot) ? snapshot : {};
-      };
-      VC.profileStateValue = function (key) {
-        return VC.normalizeProfileStateValue(key, VC.L.Storage.get(key, VC.cloneProfileStateDefault(key)));
-      };
+
+      // --- Removed: legacy helpers for Lampa state storage (no longer used) ---
+      // VC.profileStateStorageKey, cloneProfileStateDefault, normalizeProfileStateValue,
+      // readProfileStateSnapshot, profileStateValue — all removed as Lampa state is native
+
       VC.saveCurrentProfileLocalState = function (profileId) {
-        if (!profileId) return;
-        var snapshot = {};
-        VC.PROFILE_STATE_KEYS.forEach(function (key) {
-          snapshot[key] = VC.profileStateValue(key);
-        });
-        VC.L.Storage.set(VC.profileStateStorageKey(profileId), snapshot);
+        // No-op: Lampa state is managed natively; no VC-local state to save
+        // Kept for API compatibility with callers (profiles.js, init.js)
+        return;
       };
       VC.applyProfileLocalState = function (profileId) {
         if (!profileId) return;
-        var snapshot = VC.readProfileStateSnapshot(profileId);
-        VC.PROFILE_STATE_KEYS.forEach(function (key) {
-          var value = Object.prototype.hasOwnProperty.call(snapshot, key) ? snapshot[key] : VC.cloneProfileStateDefault(key);
-          VC.L.Storage.set(key, VC.normalizeProfileStateValue(key, value), true);
-        });
+
+        // Lampa manages its own state natively; just refresh from Lampa storage
         if (Lampa.Favorite && Lampa.Favorite.read) Lampa.Favorite.read(true);
         if (Lampa.Timeline && Lampa.Timeline.read) Lampa.Timeline.read(true);
+
+        // Notify that profile-local state has been applied (for UI updates)
+        Lampa.Listener.send('state:changed', {
+          target: 'profile_state',
+          reason: 'apply',
+          profileId: profileId
+        });
       };
       VC.refreshProfileRuntimeState = function () {
         if (Lampa.Favorite && Lampa.Favorite.read) Lampa.Favorite.read(true);
@@ -1596,145 +1543,28 @@
       }
       // ==================================================================
 
-      var BUCKET_TO_LAMPA = {
-        bookmarks: 'book',
-        liked: 'like',
-        later: 'wath',
-        watch: 'look',
-        watched: 'history',
-        planned: 'scheduled',
-        "continue": 'continued',
-        dropped: 'thrown'
-        // hidden bucket in Vatra has no equivalent in Lampa (skip)
-      };
-      var LAMPA_TO_BUCKET = {
-        book: 'bookmarks',
-        like: 'liked',
-        wath: 'later',
-        history: 'watched',
-        look: 'watch',
-        viewed: 'watched',
-        // viewed maps to watched (both are "already watched")
-        scheduled: 'planned',
-        continued: 'continue',
-        thrown: 'dropped'
-      };
-      VC.mediaTypeFromCard = function (card) {
-        if (!card) return '';
-        var explicit = String(card.media_type || card.type || card.category || card.cat || '').toLowerCase();
-        if (explicit === 'movie' || explicit === 'tv') return explicit;
-        if (card.number_of_seasons || card.first_air_date || card.original_name) return 'tv';
-        if (card.release_date || card.title || card.original_title) return 'movie';
-        var method = String(card.method || '').toLowerCase();
-        if (method === 'tv' || method === 'movie') return method;
-        return '';
-      };
-      VC.contentKeyFromCard = function (card) {
-        if (!card) return '';
-        var source = card.source || card.source_type || 'tmdb';
-        var id = card.id || card.card_id || card.kinopoisk_id || '';
-        var mediaType = VC.mediaTypeFromCard(card);
-        if (!id) return '';
-        return [source, mediaType, id].filter(Boolean).join(':');
-      };
-      VC.cardFromContentKey = function (contentKey) {
-        var parts = String(contentKey || '').split(':').map(function (part) {
-          return part.trim();
-        }).filter(Boolean);
-        if (parts.length < 2) return null;
-        var source = parts[0];
-        var hasMediaType = parts[1] === 'movie' || parts[1] === 'tv';
-        var id = hasMediaType ? parts[2] : parts[1];
-        var mediaType = hasMediaType ? parts[1] : '';
-        if (!source || !id) return null;
-        var numericId = /^\d+$/.test(id) ? Number(id) : id;
-        var card = {
-          id: numericId,
-          source: source
-        };
-        if (mediaType === 'tv') {
-          card.method = 'tv';
-          card.original_name = '';
-        } else if (mediaType === 'movie') {
-          card.method = 'movie';
-          card.title = '';
-        }
-        return card;
-      };
-      VC.fixCardImg = function (card) {
-        if (!card || !card.poster_path) return card;
-        // Use the patched TMDB.img which produces correct URL
-        card.img = VC.L.TMDB.img(card.poster_path, VC.L.Storage.field('poster_size') || 'w300');
-        return card;
-      };
-      VC.applyCloudBookmarks = function (items) {
-        if (!Array.isArray(items)) return;
-        VC._applyingCloudState = true;
-        try {
-          var favorite = VC.L.Storage.get('favorite', '{}');
-          var next = favorite && _typeof(favorite) === 'object' && !Array.isArray(favorite) ? favorite : {};
-          var cards = Array.isArray(next.card) ? next.card : [];
-          Object.keys(BUCKET_TO_LAMPA).forEach(function (bucket) {
-            var where = BUCKET_TO_LAMPA[bucket];
-            next[where] = [];
-          });
-          items.forEach(function (item) {
-            if (!item || item.profile_id !== VC.profile()) return;
-            var where = BUCKET_TO_LAMPA[item.bucket];
-            var card = VC.cardFromContentKey(item.content_key);
-            if (!where || !card) return;
-            if (!Array.isArray(next[where])) next[where] = [];
-            if (!next[where].some(function (id) {
-              return String(id) === String(card.id);
-            })) next[where].unshift(card.id);
-            if (!cards.some(function (existing) {
-              return String(existing.id) === String(card.id);
-            })) cards.push(card);
-          });
+      // NOTE: Bucket-to-Lampa mappings removed — Lampa uses its own internal category system.
+      // We now rely on Lampa APIs directly instead of maintaining parallel mapping tables.
 
-          // Fix img URLs in all cards (both existing and newly added) to avoid double-slash bug
-          cards.forEach(function (c) {
-            return VC.fixCardImg(c);
-          });
-          next.card = cards;
-          VC.L.Storage.set('favorite', next, true);
-          VC.refreshProfileRuntimeState();
-        } finally {
-          VC._applyingCloudState = false;
-        }
-      };
-      VC.applyCloudProgress = function (items) {
-        if (!Array.isArray(items) || !Lampa.Timeline || !Lampa.Timeline.update) return;
-        VC._applyingCloudState = true;
-        try {
-          items.forEach(function (item) {
-            if (!item || item.profile_id !== VC.profile()) return;
-            var contentKey = String(item.content_key || '');
-            if (contentKey.indexOf('timeline:') !== 0) return;
-            var hash = contentKey.slice('timeline:'.length);
-            if (!hash) return;
-            Lampa.Timeline.update({
-              hash: hash,
-              percent: Number(item.progress_percent || 0),
-              time: Number(item.position_seconds || 0),
-              duration: Number(item.duration_seconds || 0),
-              profile: item.profile_id,
-              received: true
-            });
-          });
-        } finally {
-          VC._applyingCloudState = false;
-        }
-      };
+      // NOTE: mediaTypeFromCard, contentKeyFromCard, cardFromContentKey removed.
+      // Lampa's native APIs use their own content key format; no conversion needed.
+
+      // NOTE: fixCardImg removed — no longer needed after applyCloudBookmarks removal.
+      // TMDB img patch above (lines 6-23) is still active and sufficient.
+
+      // NOTE: applyCloudBookmarks and applyCloudProgress removed.
+      // Lampa's Account.Bookmarks and Timeline modules handle cloud sync natively.
+
       VC.loadCloudState = function () {
         if (!VC.token() || !VC.profile()) return Promise.resolve();
-        return Promise.all([VC.req('/state/bookmarks?profileId=' + encodeURIComponent(VC.profile())), VC.req('/state/progress?profileId=' + encodeURIComponent(VC.profile()))]).then(function (_ref) {
-          var _ref2 = _slicedToArray(_ref, 2),
-            bookmarks = _ref2[0],
-            progress = _ref2[1];
-          VC.applyCloudBookmarks(bookmarks && bookmarks.items || []);
-          VC.applyCloudProgress(progress && progress.items || []);
-        });
+
+        // Delegate to Lampa's native cloud sync.
+        // Account.Bookmarks.update() loads dump/changelog from cloud and updates Favorite state.
+        // Timeline state is automatically handled by Account.Timeline (initialized alongside Bookmarks).
+        if (Lampa && Lampa.Account && Lampa.Account.Bookmarks && Lampa.Account.Bookmarks.update) {
+          return Lampa.Account.Bookmarks.update();
+        }
+        return Promise.resolve();
       };
       VC.scheduleStateSync = function (key, fn, delay) {
         var ms = typeof delay === 'number' ? delay : 700;
@@ -1742,7 +1572,6 @@
         VC._stateSyncTimers[key] = setTimeout(fn, ms);
       };
       VC.syncTimelineState = function (data) {
-        if (VC._applyingCloudState) return;
         if (!VC.token()) return;
         var profileId = VC.profile();
         if (!profileId) return;
@@ -1782,45 +1611,39 @@
           }
         });
       };
-      VC.syncFavoriteState = function (event) {
-        if (VC._applyingCloudState) return;
-        if (!VC.token()) return;
-        var profileId = VC.profile();
-        if (!profileId) return;
-        if (!event || event.reason !== 'update') return;
-        if (event.target !== 'favorite') return;
-        var card = event.card;
-        var contentKey = VC.contentKeyFromCard(card);
-        if (!contentKey) return;
-        var bucket = event.type || 'bookmarks';
-        bucket = LAMPA_TO_BUCKET[bucket] || bucket;
-        VC.scheduleStateSync('bookmark:' + contentKey + ':' + bucket, function () {
-          VC.req('/state/bookmarks', {
-            method: 'PUT',
-            body: {
-              profileId: profileId,
-              contentKey: contentKey,
-              bucket: bucket
-            }
-          })["catch"](function () {});
-        });
-      };
+
+      // NOTE: syncFavoriteState removed — Lampa.Account.Bookmarks already listens to
+      // Favorite.add/remove events and pushes changes to cloud via VC.req internally.
+
       VC.bindStateSync = function () {
         if (!VC.L.Listener || !VC.L.Listener.follow) return;
-        VC.loadCloudState()["catch"](function () {});
-        VC.connectStateRealtime();
+
+        // On profile change, trigger Lampa's native cloud sync for bookmarks & timeline
+        VC.L.Listener.follow('profile_select', function () {
+          if (VC.profile()) {
+            // Lampa's Account.Bookmarks.update() will fetch cloud bookmarks
+            if (Lampa && Lampa.Account && Lampa.Account.Bookmarks && Lampa.Account.Bookmarks.update) {
+              Lampa.Account.Bookmarks.update();
+            }
+            VC.connectStateRealtime();
+          }
+        });
+
+        // Only timeline events need VC-specific cloud sync (progress/continue-watching).
+        // Favorite/bookmark changes are handled natively by Lampa → Account.Bookmarks.push()
         VC.L.Listener.follow('state:changed', function (event) {
           if (!event) return;
           if (event.target === 'timeline' && event.reason === 'update' && event.data) {
             VC.syncTimelineState(event.data);
             return;
           }
-          if (event.target === 'favorite') VC.syncFavoriteState(event);
+
+          // Favorite events are handled by Lampa natively; no action needed here
         });
-        VC.L.Listener.follow('profile_select', function () {
-          VC.loadCloudState()["catch"](function () {});
-          VC.connectStateRealtime();
-        });
+
+        // Initial cloud load (delegates to Lampa)
+        VC.loadCloudState()["catch"](function () {});
+        VC.connectStateRealtime();
       };
       VC.connectStateRealtime = function () {
         if (!VC.token() || VC._stateRealtimeConnecting) return;
