@@ -316,19 +316,55 @@
       };
     }
 
+    function _typeof(o) {
+      "@babel/helpers - typeof";
+
+      return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) {
+        return typeof o;
+      } : function (o) {
+        return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o;
+      }, _typeof(o);
+    }
+
     function initProfileState(VC) {
       VC.PROFILE_STATE_KEYS = ['favorite', 'file_view', 'recomends_scan', 'recomends_list', 'timetable', 'account_bookmarks'];
+      VC.PROFILE_STATE_DEFAULTS = {
+        favorite: {},
+        file_view: {},
+        recomends_scan: [],
+        recomends_list: [],
+        timetable: [],
+        account_bookmarks: []
+      };
       VC.profileStateStorageKey = function (profileId) {
         return 'vatra_profile_state_' + String(profileId || 'default');
       };
+      VC.cloneProfileStateDefault = function (key) {
+        var value = VC.PROFILE_STATE_DEFAULTS[key];
+        if (Array.isArray(value)) return [];
+        if (value && _typeof(value) === 'object') return {};
+        return value;
+      };
+      VC.normalizeProfileStateValue = function (key, value) {
+        var fallback = VC.cloneProfileStateDefault(key);
+        if (Array.isArray(fallback)) return Array.isArray(value) ? value : fallback;
+        if (fallback && _typeof(fallback) === 'object') {
+          return value && _typeof(value) === 'object' && !Array.isArray(value) ? value : fallback;
+        }
+        return typeof value === 'undefined' || value === null ? fallback : value;
+      };
       VC.readProfileStateSnapshot = function (profileId) {
-        return VC.L.Storage.get(VC.profileStateStorageKey(profileId), '{}');
+        var snapshot = VC.L.Storage.get(VC.profileStateStorageKey(profileId), '{}');
+        return snapshot && _typeof(snapshot) === 'object' && !Array.isArray(snapshot) ? snapshot : {};
+      };
+      VC.profileStateValue = function (key) {
+        return VC.normalizeProfileStateValue(key, VC.L.Storage.get(key, VC.cloneProfileStateDefault(key)));
       };
       VC.saveCurrentProfileLocalState = function (profileId) {
         if (!profileId) return;
         var snapshot = {};
         VC.PROFILE_STATE_KEYS.forEach(function (key) {
-          snapshot[key] = VC.L.Storage.get(key, null);
+          snapshot[key] = VC.profileStateValue(key);
         });
         VC.L.Storage.set(VC.profileStateStorageKey(profileId), snapshot);
       };
@@ -336,7 +372,8 @@
         if (!profileId) return;
         var snapshot = VC.readProfileStateSnapshot(profileId);
         VC.PROFILE_STATE_KEYS.forEach(function (key) {
-          if (Object.prototype.hasOwnProperty.call(snapshot, key)) VC.L.Storage.set(key, snapshot[key], true);else if (key === 'favorite') VC.L.Storage.set(key, {}, true);else if (key === 'file_view') VC.L.Storage.set(key, {}, true);else if (key === 'recomends_scan') VC.L.Storage.set(key, {}, true);else if (key === 'recomends_list') VC.L.Storage.set(key, [], true);else if (key === 'timetable') VC.L.Storage.set(key, {}, true);else if (key === 'account_bookmarks') VC.L.Storage.set(key, [], true);
+          var value = Object.prototype.hasOwnProperty.call(snapshot, key) ? snapshot[key] : VC.cloneProfileStateDefault(key);
+          VC.L.Storage.set(key, VC.normalizeProfileStateValue(key, value), true);
         });
         if (Lampa.Favorite && Lampa.Favorite.read) Lampa.Favorite.read(true);
         if (Lampa.Timeline && Lampa.Timeline.read) Lampa.Timeline.read(true);
