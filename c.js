@@ -5,7 +5,7 @@
       if (window.vatra_connector_ready) return null;
       window.vatra_connector_ready = true;
       var VC = {
-        version: '0.0.7',
+        version: '0.0.8',
         COMPONENT: 'vatra_connector',
         L: {
           Storage: Lampa.Storage,
@@ -54,6 +54,7 @@
         vatra_pair_failed_no_session: 'Помилка підключення: сесія відсутня',
         vatra_pair_failed: 'Помилка завершення підключення',
         vatra_pair_start_failed_no_code: 'Помилка початку підключення: код відсутній',
+        vatra_pair_expired: 'Код підключення прострочено. Отримайте новий код.',
         vatra_pairing_title: 'Підключення Vatra',
         vatra_pair_approve_info: 'Підтвердіть код у порталі, потім натисніть «Завершити»',
         vatra_pair_start_failed: 'Помилка початку підключення',
@@ -109,6 +110,7 @@
         vatra_pair_failed_no_session: 'Pair complete failed: no session',
         vatra_pair_failed: 'Pair complete failed',
         vatra_pair_start_failed_no_code: 'Pair start failed: no code',
+        vatra_pair_expired: 'Pairing code expired. Get a new code.',
         vatra_pairing_title: 'Vatra Pairing',
         vatra_pair_approve_info: 'Approve code in portal, then press Complete',
         vatra_pair_start_failed: 'Pair start failed',
@@ -263,6 +265,54 @@
     }
     function _arrayWithHoles(r) {
       if (Array.isArray(r)) return r;
+    }
+    function _createForOfIteratorHelper(r, e) {
+      var t = "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"];
+      if (!t) {
+        if (Array.isArray(r) || (t = _unsupportedIterableToArray(r)) || e) {
+          t && (r = t);
+          var n = 0,
+            F = function () {};
+          return {
+            s: F,
+            n: function () {
+              return n >= r.length ? {
+                done: true
+              } : {
+                done: false,
+                value: r[n++]
+              };
+            },
+            e: function (r) {
+              throw r;
+            },
+            f: F
+          };
+        }
+        throw new TypeError("Invalid attempt to iterate non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+      }
+      var o,
+        a = true,
+        u = false;
+      return {
+        s: function () {
+          t = t.call(r);
+        },
+        n: function () {
+          var r = t.next();
+          return a = r.done, r;
+        },
+        e: function (r) {
+          u = true, o = r;
+        },
+        f: function () {
+          try {
+            a || null == t.return || t.return();
+          } finally {
+            if (u) throw o;
+          }
+        }
+      };
     }
     function _iterableToArrayLimit(r, l) {
       var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"];
@@ -450,6 +500,263 @@
       };
     }
 
+    function initDevice(VC) {
+      var UA = navigator.userAgent || '';
+      var isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0 || navigator.msMaxTouchPoints > 0;
+      var _platform = null;
+      var _deviceType = null;
+      var _osVersion = null;
+
+      // OS version extraction helpers
+      var extractVersion = function extractVersion(patterns) {
+        var _iterator = _createForOfIteratorHelper(patterns),
+          _step;
+        try {
+          for (_iterator.s(); !(_step = _iterator.n()).done;) {
+            var _step$value = _step.value,
+              re = _step$value.re,
+              _step$value$idx = _step$value.idx,
+              idx = _step$value$idx === void 0 ? 1 : _step$value$idx;
+            var m = UA.match(re);
+            if (m) return m[idx];
+          }
+        } catch (err) {
+          _iterator.e(err);
+        } finally {
+          _iterator.f();
+        }
+        return null;
+      };
+
+      // Detect platform synchronously
+      var detectPlatform = function detectPlatform() {
+        // 1. webOS (LG Smart TV)
+        if (window.webOS && webOS.platform && webOS.platform.tv === true) {
+          return 'webos';
+        }
+
+        // 2. Tizen (Samsung Smart TV)
+        if (window.tizen && tizen.tvinputdevice) {
+          return 'tizen';
+        }
+
+        // 3. Electron (Desktop app)
+        if (UA.includes('Electron')) {
+          return 'electron';
+        }
+
+        // 4. iOS / iPhone / iPad / iPod (covers mobile Safari)
+        if (/iPhone|iPad|iPod/i.test(UA)) {
+          return 'ios';
+        }
+
+        // 4a. iPad in desktop mode: Mac OS X UA but touch-enabled
+        if (/Mac OS X/i.test(UA) && isTouch) {
+          return 'ios';
+        }
+
+        // 5. Android (both mobile and TV)
+        if (/Android/i.test(UA)) {
+          return 'android';
+        }
+
+        // 6. Apple TV: explicit AppleTV keyword OR iPhone OS UA + no touch + large screen
+        if (/AppleTV/i.test(UA) || /CPU iPhone OS/i.test(UA) && !isTouch && screen && screen.width >= 1920) {
+          return 'appletv';
+        }
+
+        // 7. macOS (desktop Safari/Chrome — not touch-enabled)
+        if (/Mac OS X/i.test(UA)) {
+          return 'macos';
+        }
+
+        // 8. Windows
+        if (/Windows NT/i.test(UA)) {
+          return 'windows';
+        }
+
+        // 9. Linux
+        if (/Linux/i.test(UA)) {
+          return 'linux';
+        }
+
+        // Fallback
+        return 'browser';
+      };
+
+      // Detect OS version from UA
+      var detectOsVersion = function detectOsVersion(platform) {
+        var patterns = {
+          android: [{
+            re: /Android\s+([0-9]+(?:\.[0-9]+)*)/i,
+            idx: 1
+          }, {
+            re: /Android\s+([0-9]+)/i,
+            idx: 1
+          }],
+          ios: [{
+            re: /iPhone OS\s+([0-9_]+)/i,
+            idx: 1
+          }, {
+            re: /CPU iPhone OS\s+([0-9_]+)/i,
+            idx: 1
+          }, {
+            re: /iPad.*OS\s+([0-9_]+)/i,
+            idx: 1
+          }, {
+            re: /iPod.*OS\s+([0-9_]+)/i,
+            idx: 1
+          }],
+          macos: [{
+            re: /Mac OS X\s+([0-9_]+)/i,
+            idx: 1
+          }, {
+            re: /Mac OS X\s+10_([0-9_]+)/i,
+            idx: 1
+          }],
+          windows: [{
+            re: /Windows NT\s+([0-9]+(?:\.[0-9]+)?)/i,
+            idx: 1
+          }, {
+            re: /Windows\s+([0-9]+(?:\.[0-9]+)?)/i,
+            idx: 1
+          }],
+          appletv: [{
+            re: /CPU iPhone OS\s+([0-9_]+)/i,
+            idx: 1
+          }]
+        };
+        var p = patterns[platform];
+        if (!p) return null;
+        var raw = extractVersion(p);
+        if (!raw) return null;
+
+        // Normalize underscores to dots (iOS: 16_5 -> 16.5)
+        return raw.replace(/_/g, '.');
+      };
+
+      // Build user-friendly device type name
+      var buildDeviceType = function buildDeviceType(platform) {
+        UA.toLowerCase();
+        if (platform === 'webos') {
+          return 'webOS TV';
+        }
+        if (platform === 'tizen') {
+          return 'Tizen TV';
+        }
+        if (platform === 'appletv') {
+          return 'Apple TV';
+        }
+        if (platform === 'android') {
+          return isTouch ? 'Android Phone' : 'Android TV';
+        }
+        if (platform === 'ios') {
+          return /ipad/i.test(UA) ? 'iPad' : 'iPhone';
+        }
+        if (platform === 'electron') {
+          return 'Electron App';
+        }
+        if (platform === 'macos') {
+          return 'Mac';
+        }
+        if (platform === 'windows') {
+          return 'Windows PC';
+        }
+        if (platform === 'linux') {
+          return 'Linux PC';
+        }
+        return 'Browser';
+      };
+
+      // Build user-friendly display name
+      var buildDisplayName = function buildDisplayName(platform, deviceType) {
+        var manifest = VC.L && VC.L.Manifest;
+        var appName = manifest && manifest.name ? manifest.name : 'Vatra';
+        if (platform === 'webos') {
+          return "Lampa (".concat(deviceType, ")");
+        }
+        if (platform === 'tizen') {
+          return "Lampa (".concat(deviceType, ")");
+        }
+        if (platform === 'appletv') {
+          return "Lampa (".concat(deviceType, ")");
+        }
+        if (platform === 'android') {
+          return "Lampa (".concat(deviceType, ")");
+        }
+        if (platform === 'ios') {
+          return "".concat(appName, " (").concat(deviceType, ")");
+        }
+        if (platform === 'electron') {
+          return "".concat(appName, " Desktop");
+        }
+        if (platform === 'macos' || platform === 'windows' || platform === 'linux') {
+          return "".concat(appName, " (").concat(deviceType, ")");
+        }
+        return "Vatra Connector";
+      };
+
+      // Public API
+      VC.Device = {
+        init: function init() {
+          _platform = detectPlatform();
+          _deviceType = buildDeviceType(_platform);
+          _osVersion = detectOsVersion(_platform);
+        },
+        getPlatform: function getPlatform() {
+          if (_platform === null) this.init();
+          return _platform;
+        },
+        isTV: function isTV() {
+          if (_platform === null) this.init();
+          return _platform === 'webos' || _platform === 'tizen' || _platform === 'appletv' || _platform === 'android' && !isTouch;
+        },
+        isMobile: function isMobile() {
+          if (_platform === null) this.init();
+          return _platform === 'android' && isTouch || _platform === 'ios';
+        },
+        isDesktop: function isDesktop() {
+          if (_platform === null) this.init();
+          return _platform === 'macos' || _platform === 'windows' || _platform === 'linux' || _platform === 'electron' || _platform === 'browser';
+        },
+        getDeviceType: function getDeviceType() {
+          if (_deviceType === null) this.init();
+          return _deviceType;
+        },
+        getDisplayName: function getDisplayName() {
+          if (_deviceType === null) this.init();
+          return buildDisplayName(_platform, _deviceType);
+        },
+        getOsVersion: function getOsVersion() {
+          if (_osVersion === null) this.init();
+          return _osVersion || null;
+        },
+        getAppVersion: function getAppVersion() {
+          var manifest = VC.L && VC.L.Manifest;
+          return manifest && manifest.app_version ? manifest.app_version : null;
+        },
+        getInfo: function getInfo() {
+          if (_platform === null) this.init();
+          return {
+            platform: _platform,
+            deviceType: _deviceType,
+            osVersion: _osVersion || null,
+            appVersion: this.getAppVersion()
+          };
+        },
+        // Debug helper
+        _getUserAgent: function _getUserAgent() {
+          return UA;
+        },
+        _isTouchDevice: function _isTouchDevice() {
+          return isTouch;
+        }
+      };
+
+      // Auto-init on module load
+      VC.Device.init();
+    }
+
     function initApi(VC) {
       var RATE_LIMIT_RULES = {
         '/connector/v1/pair/start': {
@@ -623,6 +930,18 @@
           VC.notify(VC.L.Lang.translate('vatra_no_pending_pair'));
           return;
         }
+
+        // Check pairing code age — reject if older than 5 minutes
+        var pairTs = VC.L.Storage.get(VC.KEY.pairTs, 0);
+        var now = Date.now();
+        var ageMs = now - (typeof pairTs === 'number' ? pairTs : 0);
+        var maxAgeMs = 5 * 60 * 1000;
+        if (ageMs > maxAgeMs) {
+          VC.notify(VC.L.Lang.translate('vatra_pair_expired'));
+          VC.L.Storage.set(VC.KEY.pairingCode, '');
+          VC.L.Storage.set(VC.KEY.pairTs, 0);
+          return;
+        }
         var attempts = notePairCompleteAttempt(code);
         if (attempts >= 4) {
           var remaining = Math.max(5 - attempts, 0);
@@ -637,11 +956,11 @@
             keyId: VC.keyId(),
             clientPubKey: VC.publicKey(),
             fingerprint: {
-              platform: Lampa.Platform.get ? Lampa.Platform.get() : 'lampa',
-              appVersion: VC.L.Manifest.app_version || 'unknown',
-              osVersion: navigator.userAgent || 'unknown',
-              locale: VC.L.Storage.get('language', 'ru') || 'ru',
-              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+              platform: VC.Device.getInfo().platform,
+              appVersion: VC.Device.getInfo().appVersion,
+              osVersion: VC.Device.getInfo().osVersion,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+              locale: VC.L.Storage.get('language', 'ru') || 'ru'
             }
           }
         }).then(function (data) {
@@ -663,14 +982,19 @@
         });
       };
       VC.startPair = function () {
+        var nonceBytes = new Uint8Array(16);
+        crypto.getRandomValues(nonceBytes);
+        var clientNonce = Array.from(nonceBytes).map(function (b) {
+          return b.toString(36).slice(0, 2);
+        }).join('').slice(0, 32);
         VC.req('/connector/v1/pair/start', {
           method: 'POST',
           body: {
             deviceName: VC.L.Storage.get('device_name', 'Lampa Device'),
-            platform: 'Lampa',
-            appVersion: VC.L.Manifest.app_version || 'unknown',
+            platform: VC.Device.getPlatform(),
+            appVersion: VC.Device.getAppVersion() || VC.L.Manifest.app_version || 'unknown',
             deviceUid: VC.deviceUid(),
-            clientNonce: Math.random().toString(36).slice(2)
+            clientNonce: clientNonce
           }
         }).then(function (data) {
           var code = data.pairing ? data.pairing.code : '';
@@ -1591,6 +1915,7 @@
       initLang(VC);
       initHelpers(VC);
       initState(VC);
+      initDevice(VC);
       initProfileState(VC);
       initApi(VC);
       initPairing(VC);
