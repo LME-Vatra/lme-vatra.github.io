@@ -21,7 +21,9 @@
           Head: Lampa.Head,
           Template: Lampa.Template,
           Lang: Lampa.Lang,
-          Modal: Lampa.Modal
+          Modal: Lampa.Modal,
+          Utils: Lampa.Utils,
+          Arrays: Lampa.Arrays
         },
         KEY: {
           api: 'vatra_connector_api',
@@ -1144,8 +1146,11 @@
 
     function initBackup(VC) {
       VC.BACKUP_PROTECTED_KEYS = [VC.KEY.token, VC.KEY.refresh, VC.KEY.deviceId, VC.KEY.keyId, VC.KEY.profileId, VC.KEY.profilePin, VC.KEY.pairingCode, VC.KEY.pairTs, VC.KEY.uid, VC.KEY.pub];
+      VC.isContinuityStateKey = function (key) {
+        return key === 'favorite' || key === 'account_bookmarks_sync' || key.indexOf('account_bookmarks_') === 0 || key.indexOf('file_view') === 0;
+      };
       VC.isBackupProtectedKey = function (key) {
-        return VC.BACKUP_PROTECTED_KEYS.indexOf(key) !== -1;
+        return VC.BACKUP_PROTECTED_KEYS.indexOf(key) !== -1 || VC.isContinuityStateKey(key);
       };
       VC.importBackupItem = function (key, value) {
         if (VC.isBackupProtectedKey(key)) return false;
@@ -1519,134 +1524,289 @@
     }
 
     function initStateSync(VC) {
-      // === PATCH TMDB.img: fix double-slash bug =========================
-      // Original Lampa code: baseimg = 't/p/'+poster_size+'/' → src starts with '/'
-      // Result: image.tmdb.org/t/p/w300//poster.jpg (broken)
-      // We patch to ensure exactly one slash between size and poster_path.
-      if (VC.L && VC.L.TMDB && VC.L.TMDB.img) {
-        VC.L.TMDB.img;
-        VC.L.TMDB.img = function (src, size) {
-          if (!src) return '';
-          var posterSize = VC.L.Storage.field('poster_size') || 'w300';
-          var path = 't/p/' + posterSize;
-          if (size) path = path.replace(new RegExp(posterSize, 'g'), size);
-          // Ensure single slash: strip leading slash from src
-          var cleanSrc = src.charAt(0) === '/' ? src.substring(1) : src;
-          return VC.L.TMDB.image(path + '/' + cleanSrc);
-        };
-      }
-      // Also patch Lampa.Api.img which delegates to TMDB.img
-      if (VC.L && VC.L.Api && VC.L.Api.img) {
-        VC.L.Api.img = function (src, size) {
-          return VC.L.TMDB.img(src, size);
-        };
-      }
-      // ==================================================================
-
-      // NOTE: Bucket-to-Lampa mappings removed — Lampa uses its own internal category system.
-      // We now rely on Lampa APIs directly instead of maintaining parallel mapping tables.
-
-      // NOTE: mediaTypeFromCard, contentKeyFromCard, cardFromContentKey removed.
-      // Lampa's native APIs use their own content key format; no conversion needed.
-
-      // NOTE: fixCardImg removed — no longer needed after applyCloudBookmarks removal.
-      // TMDB img patch above (lines 6-23) is still active and sufficient.
-
-      // NOTE: applyCloudBookmarks and applyCloudProgress removed.
-      // Lampa's Account.Bookmarks and Timeline modules handle cloud sync natively.
-
-      VC.loadCloudState = function () {
-        if (!VC.token() || !VC.profile()) return Promise.resolve();
-
-        // Delegate to Lampa's native cloud sync.
-        // Account.Bookmarks.update() loads dump/changelog from cloud and updates Favorite state.
-        // Timeline state is automatically handled by Account.Timeline (initialized alongside Bookmarks).
-        if (Lampa && Lampa.Account && Lampa.Account.Bookmarks && Lampa.Account.Bookmarks.update) {
-          // Wrap in Promise to guarantee return value even if Bookmarks.update doesn't return one
-          return new Promise(function (resolve) {
-            Lampa.Account.Bookmarks.update(function () {
-              return resolve();
-            });
-          });
+      var LAMPA_TO_CORE_BUCKET = {
+        book: 'bookmarks',
+        like: 'liked',
+        wath: 'watch',
+        look: 'watch',
+        viewed: 'watched',
+        history: 'watched',
+        scheduled: 'planned',
+        continued: 'continue',
+        thrown: 'dropped'
+      };
+      var CORE_TO_LAMPA_BUCKET = {
+        bookmarks: 'book',
+        liked: 'like',
+        watch: 'look',
+        watched: 'history',
+        planned: 'scheduled',
+        "continue": 'continued',
+        dropped: 'thrown',
+        hidden: 'book'
+      };
+      var FAVORITE_BUCKETS = ['like', 'wath', 'book', 'history', 'look', 'viewed', 'scheduled', 'continued', 'thrown'];
+      VC._stateQueue = VC._stateQueue || {
+        bookmarks: {},
+        timeline: {}
+      };
+      VC._stateFlushBusy = false;
+      VC._stateApplyingCloud = false;
+      VC._stateRealtimeConnecting = false;
+      VC.stateTrackerKey = function () {
+        return 'vatra_state_version_' + (VC.profile() || 'default');
+      };
+      VC.stateVersion = function () {
+        var value = Number(VC.L.Storage.get(VC.stateTrackerKey(), 0) || 0);
+        return Number.isFinite(value) ? value : 0;
+      };
+      VC.setStateVersion = function (version) {
+        var next = Number(version || 0);
+        if (Number.isFinite(next)) VC.L.Storage.set(VC.stateTrackerKey(), next, true);
+      };
+      VC.activateVatraSyncProvider = function () {
+        if (!VC.token()) return;
+        if (typeof VC._previousAccountSync === 'undefined') {
+          VC._previousAccountSync = VC.L.Storage.get('account_sync', true);
         }
-        return Promise.resolve();
+        window.lampa_settings.account_sync = false;
+        if (VC.L.Storage.get('account_sync', true) !== false) {
+          VC.L.Storage.set('account_sync', false, true);
+        }
+      };
+      VC.normalizeContentKey = function (card) {
+        if (!card) return '';
+        var id = card.id || card.card_id || card.content_key || card.contentKey;
+        if (!id) return '';
+        var source = card.source || (card.original_name || card.name ? 'tmdb' : 'card');
+        return source + ':' + id;
+      };
+      VC.clearSyncCard = function (card) {
+        if (!card) return null;
+        if (VC.L.Utils && VC.L.Utils.clearCard) {
+          try {
+            return VC.L.Utils.clearCard(Object.assign({}, card));
+          } catch (e) {}
+        }
+        return Object.assign({}, card);
+      };
+      VC.coreBucketFromLampa = function (type) {
+        return LAMPA_TO_CORE_BUCKET[type] || type || 'bookmarks';
+      };
+      VC.lampaBucketFromCore = function (bucket) {
+        return CORE_TO_LAMPA_BUCKET[bucket] || bucket || 'book';
       };
       VC.scheduleStateSync = function (key, fn, delay) {
         var ms = typeof delay === 'number' ? delay : 700;
         clearTimeout(VC._stateSyncTimers[key]);
         VC._stateSyncTimers[key] = setTimeout(fn, ms);
       };
-      VC.syncTimelineState = function (data) {
-        if (!VC.token()) return;
-        var profileId = VC.profile();
-        if (!profileId) return;
+      VC.queueBookmarkState = function (action, type, card) {
+        if (VC._stateApplyingCloud) return;
+        if (!VC.token() || !VC.profile()) return;
+        if (!card || !card.id) return;
+        var contentKey = VC.normalizeContentKey(card);
+        if (!contentKey) return;
+        var queueKey = type + ':' + contentKey;
+        VC._stateQueue.bookmarks[queueKey] = {
+          action: action === 'delete' || action === 'remove' ? 'delete' : 'upsert',
+          contentKey: contentKey,
+          bucket: VC.coreBucketFromLampa(type),
+          card: VC.clearSyncCard(card)
+        };
+        VC.scheduleStateSync('flush', VC.flushStateQueue, 600);
+      };
+      VC.queueTimelineState = function (data) {
+        if (VC._stateApplyingCloud) return;
+        if (!VC.token() || !VC.profile()) return;
         if (!data || !data.hash || !data.road) return;
         var hash = String(data.hash);
         var road = data.road || {};
         var percent = Math.max(0, Math.min(100, Number(road.percent || 0)));
         var time = Math.max(0, Math.round(Number(road.time || 0)));
         var duration = Math.max(1, Math.round(Number(road.duration || 1)));
-        var contentKey = 'timeline:' + hash;
-        var deviceId = VC.L.Storage.get(VC.KEY.deviceId, '') || null;
-        VC.scheduleStateSync('timeline:' + hash, function () {
-          VC.req('/state/progress', {
-            method: 'PUT',
-            body: {
-              profileId: profileId,
-              contentKey: contentKey,
-              positionSeconds: time,
-              durationSeconds: duration,
-              progressPercent: percent,
-              sourceDeviceId: deviceId,
-              sourceSessionId: null
-            }
-          })["catch"](function () {});
-          if (percent > 0 && percent < 98) {
-            VC.req('/state/continue-watching', {
-              method: 'PUT',
-              body: {
-                profileId: profileId,
-                contentKey: contentKey,
-                titleCached: null,
-                posterCached: null,
-                lastPositionSeconds: time,
-                sourceDeviceId: deviceId
-              }
-            })["catch"](function () {});
+        VC._stateQueue.timeline[hash] = {
+          contentKey: 'timeline:' + hash,
+          positionSeconds: time,
+          durationSeconds: duration,
+          progressPercent: percent
+        };
+        VC.scheduleStateSync('flush', VC.flushStateQueue, 1400);
+      };
+      VC.flushStateQueue = function () {
+        if (VC._stateFlushBusy) return;
+        if (!VC.token() || !VC.profile()) return;
+        var bookmarks = Object.keys(VC._stateQueue.bookmarks).map(function (key) {
+          return VC._stateQueue.bookmarks[key];
+        });
+        var timeline = Object.keys(VC._stateQueue.timeline).map(function (key) {
+          return VC._stateQueue.timeline[key];
+        });
+        if (!bookmarks.length && !timeline.length) return;
+        VC._stateQueue.bookmarks = {};
+        VC._stateQueue.timeline = {};
+        VC._stateFlushBusy = true;
+        VC.req('/connector/v1/state/sync', {
+          method: 'POST',
+          body: {
+            profileId: VC.profile(),
+            bookmarks: bookmarks,
+            timeline: timeline
           }
+        }).then(function (result) {
+          if (result && result.version) VC.setStateVersion(result.version);
+        })["catch"](function () {
+          bookmarks.forEach(function (item) {
+            VC._stateQueue.bookmarks[item.bucket + ':' + item.contentKey] = item;
+          });
+          timeline.forEach(function (item) {
+            VC._stateQueue.timeline[item.contentKey] = item;
+          });
+          VC.scheduleStateSync('flush', VC.flushStateQueue, 5000);
+        })["finally"](function () {
+          VC._stateFlushBusy = false;
         });
       };
-
-      // NOTE: syncFavoriteState removed — Lampa.Account.Bookmarks already listens to
-      // Favorite.add/remove events and pushes changes to cloud via VC.req internally.
-
-      VC.bindStateSync = function () {
-        if (!VC.L.Listener || !VC.L.Listener.follow) return;
-
-        // On profile change, trigger Lampa's native cloud sync for bookmarks & timeline
-        VC.L.Listener.follow('profile_select', function () {
-          if (VC.profile()) {
-            // Lampa's Account.Bookmarks.update() will fetch cloud bookmarks
-            if (Lampa && Lampa.Account && Lampa.Account.Bookmarks && Lampa.Account.Bookmarks.update) {
-              Lampa.Account.Bookmarks.update();
+      VC.favoriteStateTemplate = function () {
+        var state = VC.L.Storage.get('favorite', '{}') || {};
+        if (!state.card) state.card = [];
+        FAVORITE_BUCKETS.forEach(function (bucket) {
+          if (!state[bucket]) state[bucket] = [];
+        });
+        return state;
+      };
+      VC.removeCardFromFavoriteState = function (state, bucket, cardId) {
+        if (state[bucket]) VC.L.Arrays.remove(state[bucket], cardId);
+        var used = FAVORITE_BUCKETS.some(function (item) {
+          return state[item] && state[item].indexOf(cardId) >= 0;
+        });
+        if (!used) {
+          var existing = state.card.find(function (card) {
+            return card && card.id == cardId;
+          });
+          if (existing) VC.L.Arrays.remove(state.card, existing);
+        }
+      };
+      VC.upsertCardInFavoriteState = function (state, bucket, card) {
+        if (!card || !card.id) return;
+        var cardId = card.id;
+        var existing = state.card.find(function (item) {
+          return item && item.id == cardId;
+        });
+        if (existing) VC.L.Arrays.remove(state.card, existing);
+        state.card.push(VC.clearSyncCard(card));
+        if (state[bucket].indexOf(cardId) >= 0) VC.L.Arrays.remove(state[bucket], cardId);
+        VC.L.Arrays.insert(state[bucket], 0, cardId);
+      };
+      VC.applyBookmarksFromCloud = function (bookmarks) {
+        var state = VC.favoriteStateTemplate();
+        bookmarks.forEach(function (item) {
+          var bucket = VC.lampaBucketFromCore(item.bucket);
+          var card = item.card;
+          if (card && card.id) VC.upsertCardInFavoriteState(state, bucket, card);
+        });
+        VC.L.Storage.set('favorite', state, true);
+      };
+      VC.applyTimelineFromCloud = function (items) {
+        var viewed = {};
+        items.forEach(function (item) {
+          if (!item || !item.contentKey) return;
+          var hash = String(item.contentKey).replace(/^timeline:/, '');
+          if (!hash) return;
+          viewed[hash] = {
+            percent: Number(item.progressPercent || 0),
+            time: Number(item.positionSeconds || 0),
+            duration: Number(item.durationSeconds || 0),
+            profile: VC.profile()
+          };
+        });
+        VC.L.Storage.set('file_view', viewed, true);
+      };
+      VC.applyStateChanges = function (changes) {
+        var favoriteState = VC.favoriteStateTemplate();
+        var favoriteChanged = false;
+        var timelineState = VC.L.Storage.get('file_view', '{}') || {};
+        var timelineChanged = false;
+        changes.forEach(function (change) {
+          if (change.sourceDeviceId && change.sourceDeviceId === VC.L.Storage.get(VC.KEY.deviceId, '')) return;
+          var payload = change.payload || {};
+          if (change.domain === 'bookmark') {
+            var bucket = VC.lampaBucketFromCore(payload.bucket || change.bucket);
+            if (change.action === 'delete') {
+              var cardId = payload.card && payload.card.id ? payload.card.id : String(payload.contentKey || change.entityId).split(':').pop();
+              VC.removeCardFromFavoriteState(favoriteState, bucket, cardId);
+            } else if (payload.card && payload.card.id) {
+              VC.upsertCardInFavoriteState(favoriteState, bucket, payload.card);
             }
-            VC.connectStateRealtime();
+            favoriteChanged = true;
+          }
+          if (change.domain === 'progress' && payload.contentKey) {
+            var hash = String(payload.contentKey).replace(/^timeline:/, '');
+            timelineState[hash] = {
+              percent: Number(payload.progressPercent || 0),
+              time: Number(payload.positionSeconds || 0),
+              duration: Number(payload.durationSeconds || 0),
+              profile: VC.profile()
+            };
+            timelineChanged = true;
           }
         });
-
-        // Only timeline events need VC-specific cloud sync (progress/continue-watching).
-        // Favorite/bookmark changes are handled natively by Lampa → Account.Bookmarks.push()
+        if (favoriteChanged) VC.L.Storage.set('favorite', favoriteState, true);
+        if (timelineChanged) VC.L.Storage.set('file_view', timelineState, true);
+      };
+      VC.refreshLampaRuntimeState = function () {
+        VC._stateApplyingCloud = true;
+        try {
+          if (Lampa.Favorite && Lampa.Favorite.read) Lampa.Favorite.read();
+          if (Lampa.Timeline && Lampa.Timeline.read) Lampa.Timeline.read();
+        } finally {
+          setTimeout(function () {
+            VC._stateApplyingCloud = false;
+          }, 0);
+        }
+      };
+      VC.loadCloudState = function () {
+        if (!VC.token() || !VC.profile()) return Promise.resolve();
+        var version = VC.stateVersion();
+        var path = version ? '/connector/v1/state/changes?since=' + encodeURIComponent(version) : '/connector/v1/state/dump';
+        return VC.req(path).then(function (result) {
+          if (!result || !result.secuses) return;
+          VC._stateApplyingCloud = true;
+          if (result.changes) {
+            VC.applyStateChanges(result.changes);
+          } else {
+            VC.applyBookmarksFromCloud(result.bookmarks || []);
+            VC.applyTimelineFromCloud(result.progress || []);
+          }
+          if (result.version) VC.setStateVersion(result.version);
+          VC.refreshLampaRuntimeState();
+        })["catch"](function () {});
+      };
+      VC.bindStateSync = function () {
+        if (!VC.L.Listener || !VC.L.Listener.follow) return;
+        VC.activateVatraSyncProvider();
+        if (Lampa.Favorite && Lampa.Favorite.listener && Lampa.Favorite.listener.follow) {
+          Lampa.Favorite.listener.follow('add,added', function (event) {
+            if (!event) return;
+            VC.queueBookmarkState('upsert', event.where, event.card);
+          });
+          Lampa.Favorite.listener.follow('remove', function (event) {
+            if (!event || event.method !== 'id') return;
+            VC.queueBookmarkState('delete', event.where, event.card);
+          });
+        }
+        VC.L.Listener.follow('profile_select', function () {
+          if (!VC.profile()) return;
+          VC.activateVatraSyncProvider();
+          VC.loadCloudState()["catch"](function () {});
+          VC.connectStateRealtime();
+        });
         VC.L.Listener.follow('state:changed', function (event) {
           if (!event) return;
           if (event.target === 'timeline' && event.reason === 'update' && event.data) {
-            VC.syncTimelineState(event.data);
-            return;
+            VC.queueTimelineState(event.data);
           }
-
-          // Favorite events are handled by Lampa natively; no action needed here
         });
-
-        // Initial cloud load (delegates to Lampa)
         VC.loadCloudState()["catch"](function () {});
         VC.connectStateRealtime();
       };
@@ -1667,6 +1827,7 @@
           } catch (e) {}
           if (message.method !== 'state' || !message.data) return;
           if (message.data.profileId && message.data.profileId !== VC.profile()) return;
+          if (message.data.sourceDeviceId && message.data.sourceDeviceId === VC.L.Storage.get(VC.KEY.deviceId, '')) return;
           VC.loadCloudState()["catch"](function () {});
         };
         VC._stateRealtime.onclose = function () {
