@@ -19,6 +19,7 @@
           Settings: Lampa.Settings,
           SettingsApi: Lampa.SettingsApi,
           Activity: Lampa.Activity,
+          Player: Lampa.Player,
           Head: Lampa.Head,
           Template: Lampa.Template,
           Lang: Lampa.Lang,
@@ -1564,6 +1565,7 @@
       VC._stateFlushBusy = false;
       VC._stateApplyingCloud = false;
       VC._stateRealtimeConnecting = false;
+      VC._timelineContexts = VC._timelineContexts || {};
       VC.stateTrackerKey = function () {
         return 'vatra_state_version_' + (VC.profile() || 'default');
       };
@@ -1592,6 +1594,39 @@
         var source = card.source || (card.original_name || card.name ? 'tmdb' : 'card');
         return source + ':' + id;
       };
+      VC.cardMethod = function (card) {
+        if (!card) return 'movie';
+        if (card.method) return card.method;
+        return card.name || card.original_name || card.number_of_seasons || card.seasons ? 'tv' : 'movie';
+      };
+      VC.timelineTitle = function (card, data) {
+        if (card && (card.title || card.name)) return String(card.title || card.name);
+        if (data && data.first_title) return String(data.first_title);
+        if (data && data.title) return String(data.title);
+        return null;
+      };
+      VC.timelinePoster = function (card, data) {
+        if (card && (card.poster || card.img)) return card.poster || card.img;
+        if (data && data.thumbnail) return data.thumbnail;
+        if (data && data.img) return data.img;
+        return null;
+      };
+      VC.timelineSeason = function (data) {
+        if (!data) return null;
+        if (typeof data.season_number !== 'undefined') return Number(data.season_number);
+        if (typeof data.season !== 'undefined') return Number(data.season);
+        if (data.episode && typeof data.episode.season_number !== 'undefined') return Number(data.episode.season_number);
+        if (data.info && typeof data.info.season !== 'undefined') return Number(data.info.season);
+        return null;
+      };
+      VC.timelineEpisode = function (data) {
+        if (!data) return null;
+        if (typeof data.episode_number !== 'undefined') return Number(data.episode_number);
+        if (typeof data.episode !== 'undefined' && _typeof(data.episode) !== 'object') return Number(data.episode);
+        if (data.episode && typeof data.episode.episode_number !== 'undefined') return Number(data.episode.episode_number);
+        if (data.info && typeof data.info.episode !== 'undefined') return Number(data.info.episode);
+        return null;
+      };
       VC.clearSyncCard = function (card) {
         if (!card) return null;
         if (VC.L.Utils && VC.L.Utils.clearCard) {
@@ -1611,6 +1646,26 @@
         } catch (e) {
           return null;
         }
+      };
+      VC.rememberTimelineContext = function (input) {
+        var fallback = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+        if (!input || !input.timeline || !input.timeline.hash) return;
+        var hash = String(input.timeline.hash);
+        var activeCard = VC.currentTimelineCard();
+        var card = input.card || input.movie || fallback.card || fallback.movie || activeCard;
+        var source = input.source || fallback.source || card && card.source || 'tmdb';
+        var method = input.method || fallback.method || VC.cardMethod(card);
+        var season = VC.timelineSeason(input) || VC.timelineSeason(fallback);
+        var episode = VC.timelineEpisode(input) || VC.timelineEpisode(fallback);
+        VC._timelineContexts[hash] = {
+          card: card,
+          source: source,
+          method: method,
+          season: Number.isFinite(season) ? season : null,
+          episode: Number.isFinite(episode) ? episode : null,
+          titleCached: VC.timelineTitle(card, input),
+          posterCached: VC.timelinePoster(card, input)
+        };
       };
       VC.coreBucketFromLampa = function (type) {
         return LAMPA_TO_CORE_BUCKET[type] || type || 'bookmarks';
@@ -1647,13 +1702,22 @@
         var percent = Math.max(0, Math.min(100, Number(road.percent || 0)));
         var time = Math.max(0, Math.round(Number(road.time || 0)));
         var duration = Math.max(1, Math.round(Number(road.duration || 1)));
-        var card = data.card || data.card_data || data.movie || data.object || VC.currentTimelineCard();
-        var contentKey = card && VC.normalizeContentKey ? VC.normalizeContentKey(card) : 'timeline:' + hash;
-        var title = card && (card.title || card.name) ? String(card.title || card.name) : null;
+        var context = VC._timelineContexts[hash] || {};
+        var card = data.card || data.card_data || data.movie || data.object || context.card || VC.currentTimelineCard();
+        var contentKey = 'timeline:' + hash;
+        var title = context.titleCached || VC.timelineTitle(card, data);
+        var syncCard = card && VC.clearSyncCard ? VC.clearSyncCard(card) : card;
+        if (syncCard) {
+          if (!syncCard.source) syncCard.source = context.source || card.source || 'tmdb';
+          if (!syncCard.method) syncCard.method = context.method || VC.cardMethod(syncCard);
+        }
         VC._stateQueue.timeline[hash] = {
           contentKey: contentKey,
           titleCached: title,
-          card: card && VC.clearSyncCard ? VC.clearSyncCard(card) : card,
+          posterCached: context.posterCached || VC.timelinePoster(card, data),
+          card: syncCard,
+          season: context.season !== null && typeof context.season !== 'undefined' ? context.season : VC.timelineSeason(data),
+          episode: context.episode !== null && typeof context.episode !== 'undefined' ? context.episode : VC.timelineEpisode(data),
           positionSeconds: time,
           durationSeconds: duration,
           progressPercent: percent
@@ -1822,11 +1886,24 @@
             VC.queueBookmarkState('delete', event.where, event.card);
           });
         }
+        if (VC.L.Player && VC.L.Player.listener && VC.L.Player.listener.follow) {
+          VC.L.Player.listener.follow('create,start', function (event) {
+            if (event && event.data) VC.rememberTimelineContext(event.data);
+          });
+        }
         VC.L.Listener.follow('profile_select', function () {
           if (!VC.profile()) return;
           VC.activateVatraSyncProvider();
           VC.loadCloudState()["catch"](function () {});
           VC.connectStateRealtime();
+        });
+        VC.L.Listener.follow('torrent_file', function (event) {
+          if (!event || event.type !== 'onenter' || !event.element) return;
+          VC.rememberTimelineContext(event.element, {
+            movie: event.params ? event.params.movie : null,
+            seasons: event.params ? event.params.seasons : null,
+            source: event.params && event.params.movie ? event.params.movie.source : null
+          });
         });
         VC.L.Listener.follow('state:changed', function (event) {
           if (!event) return;
