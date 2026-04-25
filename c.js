@@ -18,6 +18,7 @@
           Listener: Lampa.Listener,
           Settings: Lampa.Settings,
           SettingsApi: Lampa.SettingsApi,
+          Activity: Lampa.Activity,
           Head: Lampa.Head,
           Template: Lampa.Template,
           Lang: Lampa.Lang,
@@ -1600,6 +1601,17 @@
         }
         return Object.assign({}, card);
       };
+      VC.currentTimelineCard = function () {
+        if (!VC.L.Activity || !VC.L.Activity.active) return null;
+        try {
+          var activity = VC.L.Activity.active();
+          var object = VC.L.Activity.extractObject ? VC.L.Activity.extractObject(activity || {}) : activity;
+          var card = object && (object.card || object.movie || object);
+          return card && card.id ? card : null;
+        } catch (e) {
+          return null;
+        }
+      };
       VC.coreBucketFromLampa = function (type) {
         return LAMPA_TO_CORE_BUCKET[type] || type || 'bookmarks';
       };
@@ -1635,8 +1647,13 @@
         var percent = Math.max(0, Math.min(100, Number(road.percent || 0)));
         var time = Math.max(0, Math.round(Number(road.time || 0)));
         var duration = Math.max(1, Math.round(Number(road.duration || 1)));
+        var card = data.card || data.card_data || data.movie || data.object || VC.currentTimelineCard();
+        var contentKey = card && VC.normalizeContentKey ? VC.normalizeContentKey(card) : 'timeline:' + hash;
+        var title = card && (card.title || card.name) ? String(card.title || card.name) : null;
         VC._stateQueue.timeline[hash] = {
-          contentKey: 'timeline:' + hash,
+          contentKey: contentKey,
+          titleCached: title,
+          card: card && VC.clearSyncCard ? VC.clearSyncCard(card) : card,
           positionSeconds: time,
           durationSeconds: duration,
           progressPercent: percent
