@@ -101,7 +101,12 @@
         vatra_cub_sync_enabled: 'Синхронізація CUB увімкнена. Вимкніть її для стабільної роботи Vatra.',
         vatra_disconnected_from: 'відключено від Vatra',
         vatra_status_connected: 'підключено',
-        vatra_status_not_connected: 'не підключено'
+        vatra_status_not_connected: 'не підключено',
+        vatra_broadcast_title: 'Транслювати через Vatra',
+        vatra_broadcast_sent: 'Broadcast відправлено',
+        vatra_broadcast_opened: 'Broadcast відкрито',
+        vatra_broadcast_no_devices: 'Немає доступних пристроїв',
+        vatra_broadcast_card_missing: 'Не вистачає даних картки для Broadcast'
       };
       var en = {
         vatra_api_url: 'Vatra API Base URL',
@@ -157,7 +162,12 @@
         vatra_cub_sync_enabled: 'CUB Sync is enabled. Disable it for stable Vatra sync.',
         vatra_disconnected_from: 'disconnected from Vatra',
         vatra_status_connected: 'connected',
-        vatra_status_not_connected: 'not connected'
+        vatra_status_not_connected: 'not connected',
+        vatra_broadcast_title: 'Broadcast with Vatra',
+        vatra_broadcast_sent: 'Broadcast sent',
+        vatra_broadcast_opened: 'Broadcast opened',
+        vatra_broadcast_no_devices: 'No available devices',
+        vatra_broadcast_card_missing: 'Not enough card data for Broadcast'
       };
       var translations = {};
       Object.keys(uk).forEach(function (key) {
@@ -1816,7 +1826,9 @@
         if (typeof WebSocket === 'undefined') return;
         var base = VC.apiBase().replace(/^http/, 'ws');
         VC._stateRealtimeConnecting = true;
-        VC._stateRealtime = new WebSocket(base + '/state/realtime?token=' + encodeURIComponent(VC.token()));
+        var deviceId = VC.L.Storage.get(VC.KEY.deviceId, '');
+        var query = '/state/realtime?token=' + encodeURIComponent(VC.token()) + (deviceId ? '&deviceId=' + encodeURIComponent(deviceId) : '');
+        VC._stateRealtime = new WebSocket(base + query);
         VC._stateRealtime.onopen = function () {
           VC._stateRealtimeConnecting = false;
         };
@@ -1825,6 +1837,10 @@
           try {
             message = JSON.parse(event.data || '{}');
           } catch (e) {}
+          if (message.method === 'broadcast' && message.data) {
+            if (VC.handleBroadcastCommand) VC.handleBroadcastCommand(message.data);
+            return;
+          }
           if (message.method !== 'state' || !message.data) return;
           if (message.data.profileId && message.data.profileId !== VC.profile()) return;
           if (message.data.sourceDeviceId && message.data.sourceDeviceId === VC.L.Storage.get(VC.KEY.deviceId, '')) return;
@@ -1841,6 +1857,131 @@
           VC._stateRealtimeConnecting = false;
         };
       };
+    }
+
+    function initBroadcast(VC) {
+      VC.broadcastDevices = function () {
+        return VC.req('/devices').then(function (data) {
+          var items = data && data.items ? data.items : [];
+          var currentDeviceId = VC.L.Storage.get(VC.KEY.deviceId, '');
+          return items.filter(function (device) {
+            return device && device.id && device.id !== currentDeviceId && device.status === 'active';
+          });
+        });
+      };
+      VC.sendBroadcastCommand = function (targetDeviceId) {
+        var payload = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+        return VC.req('/connector/v1/broadcast', {
+          method: 'POST',
+          body: Object.assign({}, payload, {
+            targetDeviceId: targetDeviceId,
+            sourceDeviceId: VC.L.Storage.get(VC.KEY.deviceId, '') || undefined,
+            profileId: payload.profileId || VC.profile() || undefined
+          })
+        });
+      };
+      VC.openBroadcastFullCard = function (command) {
+        var card = command.card || {};
+        var contentKey = command.contentKey || '';
+        var contentKeyParts = String(contentKey).split(':');
+        var sourceFromKey = contentKeyParts.length > 1 ? contentKeyParts[0] : '';
+        var fallbackId = sourceFromKey && sourceFromKey !== 'timeline' ? contentKeyParts.slice(1).join(':') : '';
+        var fullCard = Object.assign({}, card);
+        if (!fullCard.id && fallbackId) fullCard.id = fallbackId;
+        if (!fullCard.title && command.title) fullCard.title = command.title;
+        if (!fullCard.source) fullCard.source = sourceFromKey || 'tmdb';
+        if (!fullCard.method) fullCard.method = fullCard.name ? 'tv' : 'movie';
+        if (!fullCard.id) {
+          VC.notify(VC.L.Lang.translate('vatra_broadcast_card_missing') || 'Broadcast card is incomplete');
+          return false;
+        }
+        if (window.Lampa && Lampa.Activity && Lampa.Activity.push) {
+          Lampa.Activity.push({
+            component: 'full',
+            id: fullCard.id,
+            method: fullCard.method,
+            source: fullCard.source,
+            card: fullCard
+          });
+          VC.notify(VC.L.Lang.translate('vatra_broadcast_opened') || 'Broadcast opened');
+          return true;
+        }
+        return false;
+      };
+      VC.openBroadcastPlayer = function (command) {
+        if (!command.player) return false;
+        try {
+          if (window.Lampa && Lampa.Player && Lampa.Player.play) {
+            Lampa.Player.play(command.player);
+            return true;
+          }
+        } catch (e) {}
+        return false;
+      };
+      VC.handleBroadcastCommand = function (command) {
+        if (!command) return;
+        var currentDeviceId = VC.L.Storage.get(VC.KEY.deviceId, '');
+        if (command.targetDeviceId && command.targetDeviceId !== currentDeviceId) return;
+        if (command.sourceDeviceId && command.sourceDeviceId === currentDeviceId) return;
+        if (command.mode === 'player' && VC.openBroadcastPlayer(command)) return;
+        VC.openBroadcastFullCard(command);
+      };
+      VC.showBroadcastDevicePicker = function (payload) {
+        VC.broadcastDevices().then(function (devices) {
+          if (!devices.length) {
+            VC.notify(VC.L.Lang.translate('vatra_broadcast_no_devices') || 'No available devices');
+            return;
+          }
+          var items = devices.map(function (device) {
+            return {
+              title: device.name || device.platform || 'Device',
+              subtitle: device.platform || '',
+              deviceId: device.id
+            };
+          });
+          items.push({
+            title: VC.L.Lang.translate('cancel')
+          });
+          VC.L.Select.show({
+            title: VC.L.Lang.translate('vatra_broadcast_title') || 'Broadcast',
+            items: items,
+            onSelect: function onSelect(selected) {
+              if (!selected.deviceId) return;
+              VC.sendBroadcastCommand(selected.deviceId, payload).then(function () {
+                VC.notify(VC.L.Lang.translate('vatra_broadcast_sent') || 'Broadcast sent');
+              })["catch"](function (error) {
+                VC.notify(error.message || 'Broadcast failed');
+              });
+            },
+            onBack: function onBack() {
+              VC.L.Controller.toggle('content');
+            }
+          });
+        })["catch"](function (error) {
+          VC.notify(error.message || 'Broadcast failed');
+        });
+      };
+      VC.registerBroadcastContextMenu = function () {
+        if (!VC.L.Manifest || window.__vatraBroadcastContextMenuRegistered) return;
+        window.__vatraBroadcastContextMenuRegistered = true;
+        VC.L.Manifest.plugins = {
+          type: 'video',
+          name: 'Vatra Broadcast',
+          description: 'Send this card to another Vatra device',
+          onContextMenu: true,
+          onContextLauch: function onContextLauch(card) {
+            if (!card) return;
+            var contentKey = VC.normalizeContentKey ? VC.normalizeContentKey(card) : String(card.id || '');
+            VC.showBroadcastDevicePicker({
+              mode: 'full_card',
+              contentKey: contentKey,
+              title: card.title || card.name || contentKey,
+              card: VC.clearSyncCard ? VC.clearSyncCard(card) : card
+            });
+          }
+        };
+      };
+      VC.registerBroadcastContextMenu();
     }
 
     function initMain(VC) {
@@ -1949,6 +2090,7 @@
       initPlugins(VC);
       initSettings(VC);
       initHeader(VC);
+      initBroadcast(VC);
       initStateSync(VC);
       initMain(VC);
     }
