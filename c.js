@@ -277,6 +277,31 @@
       for (var e = 0, n = Array(a); e < a; e++) n[e] = r[e];
       return n;
     }
+    function asyncGeneratorStep(n, t, e, r, o, a, c) {
+      try {
+        var i = n[a](c),
+          u = i.value;
+      } catch (n) {
+        return void e(n);
+      }
+      i.done ? t(u) : Promise.resolve(u).then(r, o);
+    }
+    function _asyncToGenerator(n) {
+      return function () {
+        var t = this,
+          e = arguments;
+        return new Promise(function (r, o) {
+          var a = n.apply(t, e);
+          function _next(n) {
+            asyncGeneratorStep(a, r, o, _next, _throw, "next", n);
+          }
+          function _throw(n) {
+            asyncGeneratorStep(a, r, o, _next, _throw, "throw", n);
+          }
+          _next(void 0);
+        });
+      };
+    }
     function _createForOfIteratorHelper(r, e) {
       var t = "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"];
       if (!t) {
@@ -324,6 +349,114 @@
           }
         }
       };
+    }
+    function _regenerator() {
+      /*! regenerator-runtime -- Copyright (c) 2014-present, Facebook, Inc. -- license (MIT): https://github.com/babel/babel/blob/main/packages/babel-helpers/LICENSE */
+      var e,
+        t,
+        r = "function" == typeof Symbol ? Symbol : {},
+        n = r.iterator || "@@iterator",
+        o = r.toStringTag || "@@toStringTag";
+      function i(r, n, o, i) {
+        var c = n && n.prototype instanceof Generator ? n : Generator,
+          u = Object.create(c.prototype);
+        return _regeneratorDefine(u, "_invoke", function (r, n, o) {
+          var i,
+            c,
+            u,
+            f = 0,
+            p = o || [],
+            y = false,
+            G = {
+              p: 0,
+              n: 0,
+              v: e,
+              a: d,
+              f: d.bind(e, 4),
+              d: function (t, r) {
+                return i = t, c = 0, u = e, G.n = r, a;
+              }
+            };
+          function d(r, n) {
+            for (c = r, u = n, t = 0; !y && f && !o && t < p.length; t++) {
+              var o,
+                i = p[t],
+                d = G.p,
+                l = i[2];
+              r > 3 ? (o = l === n) && (u = i[(c = i[4]) ? 5 : (c = 3, 3)], i[4] = i[5] = e) : i[0] <= d && ((o = r < 2 && d < i[1]) ? (c = 0, G.v = n, G.n = i[1]) : d < l && (o = r < 3 || i[0] > n || n > l) && (i[4] = r, i[5] = n, G.n = l, c = 0));
+            }
+            if (o || r > 1) return a;
+            throw y = true, n;
+          }
+          return function (o, p, l) {
+            if (f > 1) throw TypeError("Generator is already running");
+            for (y && 1 === p && d(p, l), c = p, u = l; (t = c < 2 ? e : u) || !y;) {
+              i || (c ? c < 3 ? (c > 1 && (G.n = -1), d(c, u)) : G.n = u : G.v = u);
+              try {
+                if (f = 2, i) {
+                  if (c || (o = "next"), t = i[o]) {
+                    if (!(t = t.call(i, u))) throw TypeError("iterator result is not an object");
+                    if (!t.done) return t;
+                    u = t.value, c < 2 && (c = 0);
+                  } else 1 === c && (t = i.return) && t.call(i), c < 2 && (u = TypeError("The iterator does not provide a '" + o + "' method"), c = 1);
+                  i = e;
+                } else if ((t = (y = G.n < 0) ? u : r.call(n, G)) !== a) break;
+              } catch (t) {
+                i = e, c = 1, u = t;
+              } finally {
+                f = 1;
+              }
+            }
+            return {
+              value: t,
+              done: y
+            };
+          };
+        }(r, o, i), true), u;
+      }
+      var a = {};
+      function Generator() {}
+      function GeneratorFunction() {}
+      function GeneratorFunctionPrototype() {}
+      t = Object.getPrototypeOf;
+      var c = [][n] ? t(t([][n]())) : (_regeneratorDefine(t = {}, n, function () {
+          return this;
+        }), t),
+        u = GeneratorFunctionPrototype.prototype = Generator.prototype = Object.create(c);
+      function f(e) {
+        return Object.setPrototypeOf ? Object.setPrototypeOf(e, GeneratorFunctionPrototype) : (e.__proto__ = GeneratorFunctionPrototype, _regeneratorDefine(e, o, "GeneratorFunction")), e.prototype = Object.create(u), e;
+      }
+      return GeneratorFunction.prototype = GeneratorFunctionPrototype, _regeneratorDefine(u, "constructor", GeneratorFunctionPrototype), _regeneratorDefine(GeneratorFunctionPrototype, "constructor", GeneratorFunction), GeneratorFunction.displayName = "GeneratorFunction", _regeneratorDefine(GeneratorFunctionPrototype, o, "GeneratorFunction"), _regeneratorDefine(u), _regeneratorDefine(u, o, "Generator"), _regeneratorDefine(u, n, function () {
+        return this;
+      }), _regeneratorDefine(u, "toString", function () {
+        return "[object Generator]";
+      }), (_regenerator = function () {
+        return {
+          w: i,
+          m: f
+        };
+      })();
+    }
+    function _regeneratorDefine(e, r, n, t) {
+      var i = Object.defineProperty;
+      try {
+        i({}, "", {});
+      } catch (e) {
+        i = 0;
+      }
+      _regeneratorDefine = function (e, r, n, t) {
+        function o(r, n) {
+          _regeneratorDefine(e, r, function (e) {
+            return this._invoke(r, n, e);
+          });
+        }
+        r ? i ? i(e, r, {
+          value: n,
+          enumerable: !t,
+          configurable: !t,
+          writable: !t
+        }) : e[r] = n : (o("next", 0), o("throw", 1), o("return", 2));
+      }, _regeneratorDefine(e, r, n, t);
     }
     function _typeof(o) {
       "@babel/helpers - typeof";
@@ -1214,6 +1347,91 @@
           });
         });
       };
+
+      // Task 15: File-based backup export (full JSON download)
+      VC.backupExportFile = function () {
+        VC.ensureCubSafe(VC.L.Lang.translate('vatra_backup_export_file'), /*#__PURE__*/_asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee() {
+          var response, blob, url, a, _t, _t2, _t3;
+          return _regenerator().w(function (_context) {
+            while (1) switch (_context.p = _context.n) {
+              case 0:
+                _context.p = 0;
+                _context.n = 1;
+                return fetch(VC.apiBase() + '/connector/v1/backup/file', {
+                  headers: {
+                    'Authorization': "Bearer ".concat(VC.token())
+                  }
+                });
+              case 1:
+                response = _context.v;
+                if (response.ok) {
+                  _context.n = 3;
+                  break;
+                }
+                _t = Error;
+                _context.n = 2;
+                return response.text();
+              case 2:
+                _t2 = _context.v;
+                throw new _t(_t2);
+              case 3:
+                _context.n = 4;
+                return response.blob();
+              case 4:
+                blob = _context.v;
+                url = URL.createObjectURL(blob);
+                a = document.createElement('a');
+                a.href = url;
+                a.download = "vatra-backup-".concat(new Date().toISOString().slice(0, 10), ".json");
+                a.click();
+                URL.revokeObjectURL(url);
+                VC.notify(VC.L.Lang.translate('vatra_backup_exported'));
+                _context.n = 6;
+                break;
+              case 5:
+                _context.p = 5;
+                _t3 = _context.v;
+                VC.notify(_t3.message || VC.L.Lang.translate('vatra_backup_failed'));
+              case 6:
+                return _context.a(2);
+            }
+          }, _callee, null, [[0, 5]]);
+        })));
+      };
+
+      // Task 15: File-based backup import (JSON upload)
+      VC.backupImportFile = function (file) {
+        VC.ensureCubSafe(VC.L.Lang.translate('vatra_backup_import_file'), /*#__PURE__*/_asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2() {
+          var formData, response, _t4;
+          return _regenerator().w(function (_context2) {
+            while (1) switch (_context2.p = _context2.n) {
+              case 0:
+                _context2.p = 0;
+                formData = new FormData();
+                formData.append('file', file);
+                _context2.n = 1;
+                return VC.req('/connector/v1/backup/import/file', {
+                  method: 'POST',
+                  body: formData
+                });
+              case 1:
+                response = _context2.v;
+                VC.notify(VC.L.Lang.translate('vatra_backup_imported_count', {
+                  count: response.imported
+                }));
+                VC.reloadAppSoon();
+                _context2.n = 3;
+                break;
+              case 2:
+                _context2.p = 2;
+                _t4 = _context2.v;
+                VC.notify(_t4.message || VC.L.Lang.translate('vatra_backup_import_failed'));
+              case 3:
+                return _context2.a(2);
+            }
+          }, _callee2, null, [[0, 2]]);
+        })));
+      };
     }
 
     function initPlugins(VC) {
@@ -1536,6 +1754,20 @@
     }
 
     function initStateSync(VC) {
+      // Simple debounce implementation (no external deps)
+      function debounce(fn, wait) {
+        var timeout;
+        return function () {
+          var _this = this;
+          for (var _len = arguments.length, args = new Array(_len), _key = 0; _key < _len; _key++) {
+            args[_key] = arguments[_key];
+          }
+          clearTimeout(timeout);
+          timeout = setTimeout(function () {
+            return fn.apply(_this, args);
+          }, wait);
+        };
+      }
       var LAMPA_TO_CORE_BUCKET = {
         book: 'bookmarks',
         like: 'liked',
@@ -1558,13 +1790,10 @@
         hidden: 'book'
       };
       var FAVORITE_BUCKETS = ['like', 'wath', 'book', 'history', 'look', 'viewed', 'scheduled', 'continued', 'thrown'];
-      VC._stateQueue = VC._stateQueue || {
+      VC._pendingChanges = VC._pendingChanges || {
         bookmarks: {},
         timeline: {}
       };
-      VC._stateFlushBusy = false;
-      VC._stateApplyingCloud = false;
-      VC._stateRealtimeConnecting = false;
       VC._timelineContexts = VC._timelineContexts || {};
       VC.stateTrackerKey = function () {
         return 'vatra_state_version_' + (VC.profile() || 'default');
@@ -1673,28 +1902,21 @@
       VC.lampaBucketFromCore = function (bucket) {
         return CORE_TO_LAMPA_BUCKET[bucket] || bucket || 'book';
       };
-      VC.scheduleStateSync = function (key, fn, delay) {
-        var ms = typeof delay === 'number' ? delay : 700;
-        clearTimeout(VC._stateSyncTimers[key]);
-        VC._stateSyncTimers[key] = setTimeout(fn, ms);
-      };
-      VC.queueBookmarkState = function (action, type, card) {
-        if (VC._stateApplyingCloud) return;
+      VC.triggerBookmarkSync = function (action, type, card) {
         if (!VC.token() || !VC.profile()) return;
         if (!card || !card.id) return;
         var contentKey = VC.normalizeContentKey(card);
         if (!contentKey) return;
         var queueKey = type + ':' + contentKey;
-        VC._stateQueue.bookmarks[queueKey] = {
+        VC._pendingChanges.bookmarks[queueKey] = {
           action: action === 'delete' || action === 'remove' ? 'delete' : 'upsert',
           contentKey: contentKey,
           bucket: VC.coreBucketFromLampa(type),
           card: VC.clearSyncCard(card)
         };
-        VC.scheduleStateSync('flush', VC.flushStateQueue, 600);
+        VC._stateSyncDebounced();
       };
-      VC.queueTimelineState = function (data) {
-        if (VC._stateApplyingCloud) return;
+      VC.triggerTimelineSync = function (data) {
         if (!VC.token() || !VC.profile()) return;
         if (!data || !data.hash || !data.road) return;
         var hash = String(data.hash);
@@ -1711,7 +1933,7 @@
           if (!syncCard.source) syncCard.source = context.source || card.source || 'tmdb';
           if (!syncCard.method) syncCard.method = context.method || VC.cardMethod(syncCard);
         }
-        VC._stateQueue.timeline[hash] = {
+        VC._pendingChanges.timeline[hash] = {
           contentKey: contentKey,
           titleCached: title,
           posterCached: context.posterCached || VC.timelinePoster(card, data),
@@ -1722,42 +1944,64 @@
           durationSeconds: duration,
           progressPercent: percent
         };
-        VC.scheduleStateSync('flush', VC.flushStateQueue, 1400);
+        VC._stateSyncDebounced();
       };
-      VC.flushStateQueue = function () {
-        if (VC._stateFlushBusy) return;
-        if (!VC.token() || !VC.profile()) return;
-        var bookmarks = Object.keys(VC._stateQueue.bookmarks).map(function (key) {
-          return VC._stateQueue.bookmarks[key];
-        });
-        var timeline = Object.keys(VC._stateQueue.timeline).map(function (key) {
-          return VC._stateQueue.timeline[key];
-        });
-        if (!bookmarks.length && !timeline.length) return;
-        VC._stateQueue.bookmarks = {};
-        VC._stateQueue.timeline = {};
-        VC._stateFlushBusy = true;
-        VC.req('/connector/v1/state/sync', {
-          method: 'POST',
-          body: {
-            profileId: VC.profile(),
-            bookmarks: bookmarks,
-            timeline: timeline
+      VC.flushStateSync = /*#__PURE__*/_asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee() {
+        var bookmarks, timeline, result, _t;
+        return _regenerator().w(function (_context) {
+          while (1) switch (_context.p = _context.n) {
+            case 0:
+              if (!(!VC.token() || !VC.profile())) {
+                _context.n = 1;
+                break;
+              }
+              return _context.a(2);
+            case 1:
+              bookmarks = Object.keys(VC._pendingChanges.bookmarks).map(function (key) {
+                return VC._pendingChanges.bookmarks[key];
+              });
+              timeline = Object.keys(VC._pendingChanges.timeline).map(function (key) {
+                return VC._pendingChanges.timeline[key];
+              });
+              if (!(!bookmarks.length && !timeline.length)) {
+                _context.n = 2;
+                break;
+              }
+              return _context.a(2);
+            case 2:
+              // Clear pending before sending to avoid duplicates on retry
+              VC._pendingChanges.bookmarks = {};
+              VC._pendingChanges.timeline = {};
+              _context.p = 3;
+              _context.n = 4;
+              return VC.req('/connector/v1/state/sync', {
+                method: 'POST',
+                body: {
+                  profileId: VC.profile(),
+                  bookmarks: bookmarks,
+                  timeline: timeline
+                }
+              });
+            case 4:
+              result = _context.v;
+              if (result && result.version) VC.setStateVersion(result.version);
+              _context.n = 6;
+              break;
+            case 5:
+              _context.p = 5;
+              _t = _context.v;
+              console.warn('State sync failed, will retry:', _t);
+              setTimeout(function () {
+                return VC.flushStateSync();
+              }, 5000);
+            case 6:
+              return _context.a(2);
           }
-        }).then(function (result) {
-          if (result && result.version) VC.setStateVersion(result.version);
-        })["catch"](function () {
-          bookmarks.forEach(function (item) {
-            VC._stateQueue.bookmarks[item.bucket + ':' + item.contentKey] = item;
-          });
-          timeline.forEach(function (item) {
-            VC._stateQueue.timeline[item.contentKey] = item;
-          });
-          VC.scheduleStateSync('flush', VC.flushStateQueue, 5000);
-        })["finally"](function () {
-          VC._stateFlushBusy = false;
-        });
-      };
+        }, _callee, null, [[3, 5]]);
+      }));
+
+      // Debounced sync trigger (300ms)
+      VC._stateSyncDebounced = debounce(VC.flushStateSync, 300);
       VC.favoriteStateTemplate = function () {
         var state = VC.L.Storage.get('favorite', '{}') || {};
         if (!state.card) state.card = [];
@@ -1846,15 +2090,8 @@
         if (timelineChanged) VC.L.Storage.set('file_view', timelineState, true);
       };
       VC.refreshLampaRuntimeState = function () {
-        VC._stateApplyingCloud = true;
-        try {
-          if (Lampa.Favorite && Lampa.Favorite.read) Lampa.Favorite.read();
-          if (Lampa.Timeline && Lampa.Timeline.read) Lampa.Timeline.read();
-        } finally {
-          setTimeout(function () {
-            VC._stateApplyingCloud = false;
-          }, 0);
-        }
+        if (Lampa.Favorite && Lampa.Favorite.read) Lampa.Favorite.read();
+        if (Lampa.Timeline && Lampa.Timeline.read) Lampa.Timeline.read();
       };
       VC.loadCloudState = function () {
         if (!VC.token() || !VC.profile()) return Promise.resolve();
@@ -1862,7 +2099,6 @@
         var path = version ? '/connector/v1/state/changes?since=' + encodeURIComponent(version) : '/connector/v1/state/dump';
         return VC.req(path).then(function (result) {
           if (!result || !result.secuses) return;
-          VC._stateApplyingCloud = true;
           if (result.changes) {
             VC.applyStateChanges(result.changes);
           } else {
@@ -1879,11 +2115,11 @@
         if (Lampa.Favorite && Lampa.Favorite.listener && Lampa.Favorite.listener.follow) {
           Lampa.Favorite.listener.follow('add,added', function (event) {
             if (!event) return;
-            VC.queueBookmarkState('upsert', event.where, event.card);
+            VC.triggerBookmarkSync('upsert', event.where, event.card);
           });
           Lampa.Favorite.listener.follow('remove', function (event) {
             if (!event || event.method !== 'id') return;
-            VC.queueBookmarkState('delete', event.where, event.card);
+            VC.triggerBookmarkSync('delete', event.where, event.card);
           });
         }
         if (VC.L.Player && VC.L.Player.listener && VC.L.Player.listener.follow) {
@@ -1908,24 +2144,30 @@
         VC.L.Listener.follow('state:changed', function (event) {
           if (!event) return;
           if (event.target === 'timeline' && event.reason === 'update' && event.data) {
-            VC.queueTimelineState(event.data);
+            VC.triggerTimelineSync(event.data);
           }
         });
         VC.loadCloudState()["catch"](function () {});
         VC.connectStateRealtime();
+
+        // Task 17: Offline detection — sync on reconnect
+        if (typeof window !== 'undefined' && window.addEventListener) {
+          window.addEventListener('online', function () {
+            console.log('App is online, syncing state...');
+            VC.flushStateSync();
+            VC.loadCloudState();
+          });
+        }
       };
       VC.connectStateRealtime = function () {
-        if (!VC.token() || VC._stateRealtimeConnecting) return;
+        if (!VC.token()) return;
         if (VC._stateRealtime && VC._stateRealtime.readyState <= 1) return;
         if (typeof WebSocket === 'undefined') return;
         var base = VC.apiBase().replace(/^http/, 'ws');
-        VC._stateRealtimeConnecting = true;
         var deviceId = VC.L.Storage.get(VC.KEY.deviceId, '');
         var query = '/state/realtime?token=' + encodeURIComponent(VC.token()) + (deviceId ? '&deviceId=' + encodeURIComponent(deviceId) : '');
         VC._stateRealtime = new WebSocket(base + query);
-        VC._stateRealtime.onopen = function () {
-          VC._stateRealtimeConnecting = false;
-        };
+        VC._stateRealtime.onopen = function () {};
         VC._stateRealtime.onmessage = function (event) {
           var message = {};
           try {
@@ -1941,15 +2183,12 @@
           VC.loadCloudState()["catch"](function () {});
         };
         VC._stateRealtime.onclose = function () {
-          VC._stateRealtimeConnecting = false;
           VC._stateRealtime = null;
           setTimeout(function () {
             return VC.connectStateRealtime();
           }, 5000);
         };
-        VC._stateRealtime.onerror = function () {
-          VC._stateRealtimeConnecting = false;
-        };
+        VC._stateRealtime.onerror = function () {};
       };
     }
 
