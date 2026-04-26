@@ -1047,15 +1047,7 @@
           method: 'POST',
           body: {
             code: code,
-            deviceUid: VC.deviceUid(),
-            clientPubKey: VC.publicKey(),
-            fingerprint: {
-              platform: VC.Device.getInfo().platform,
-              appVersion: VC.Device.getInfo().appVersion,
-              osVersion: VC.Device.getInfo().osVersion,
-              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-              locale: VC.L.Storage.get('language', 'ru') || 'ru'
-            }
+            deviceUid: VC.deviceUid()
           }
         }).then(function (data) {
           if (data.decision && data.decision !== 'ALLOW') {
@@ -1076,19 +1068,13 @@
         });
       };
       VC.startPair = function () {
-        var nonceBytes = new Uint8Array(16);
-        crypto.getRandomValues(nonceBytes);
-        var clientNonce = Array.from(nonceBytes).map(function (b) {
-          return b.toString(36).slice(0, 2);
-        }).join('').slice(0, 32);
         VC.req('/connector/v1/pair/start', {
           method: 'POST',
           body: {
             deviceName: VC.L.Storage.get('device_name', 'Lampa Device'),
             platform: VC.Device.getPlatform(),
             appVersion: VC.Device.getAppVersion() || VC.L.Manifest.app_version || 'unknown',
-            deviceUid: VC.deviceUid(),
-            clientNonce: clientNonce
+            deviceUid: VC.deviceUid()
           }
         }).then(function (data) {
           var code = data.pairing ? data.pairing.code : '';
