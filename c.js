@@ -1047,7 +1047,7 @@
           method: 'POST',
           body: {
             code: code,
-            keyId: VC.keyId(),
+            deviceUid: VC.deviceUid(),
             clientPubKey: VC.publicKey(),
             fingerprint: {
               platform: VC.Device.getInfo().platform,
