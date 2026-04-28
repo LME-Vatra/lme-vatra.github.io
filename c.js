@@ -60,7 +60,15 @@
         vatra_pair_start_failed_no_code: 'Помилка початку підключення: код відсутній',
         vatra_pair_expired: 'Код підключення прострочено. Отримайте новий код.',
         vatra_pairing_title: 'Підключення Vatra',
-        vatra_pair_approve_info: 'Підтвердіть код у порталі, потім натисніть «Завершити»',
+        vatra_pair_approve_info: 'Відскануйте QR, підтвердіть код у Vatra, а цей пристрій завершить підключення автоматично.',
+        vatra_pair_web_qr: 'Vatra Web',
+        vatra_pair_web_hint: 'Відкриває сторінку пристроїв і підставляє код.',
+        vatra_pair_telegram_qr: 'Telegram',
+        vatra_pair_telegram_hint: 'Відкриває бота або mini-app для підтвердження.',
+        vatra_pair_waiting: 'Очікую підтвердження...',
+        vatra_pair_approved: 'Код підтверджено. Завершую підключення...',
+        vatra_pair_qr_unavailable: 'QR недоступний',
+        vatra_pair_telegram_unavailable: 'Telegram QR недоступний',
         vatra_pair_start_failed: 'Помилка початку підключення',
         vatra_limit_soon_pair_start: 'Майже ліміт старту підключення. Лишилось спроб: {remaining}.',
         vatra_limit_hit_pair_start: 'Уперлись у ліміт старту підключення. Зачекайте 15 хвилин.',
@@ -121,7 +129,15 @@
         vatra_pair_start_failed_no_code: 'Pair start failed: no code',
         vatra_pair_expired: 'Pairing code expired. Get a new code.',
         vatra_pairing_title: 'Vatra Pairing',
-        vatra_pair_approve_info: 'Approve code in portal, then press Complete',
+        vatra_pair_approve_info: 'Scan a QR code, approve the code in Vatra, and this device will finish pairing automatically.',
+        vatra_pair_web_qr: 'Vatra Web',
+        vatra_pair_web_hint: 'Opens the devices page with the code already filled in.',
+        vatra_pair_telegram_qr: 'Telegram',
+        vatra_pair_telegram_hint: 'Opens the bot or mini app for approval.',
+        vatra_pair_waiting: 'Waiting for approval...',
+        vatra_pair_approved: 'Code approved. Finishing pairing...',
+        vatra_pair_qr_unavailable: 'QR unavailable',
+        vatra_pair_telegram_unavailable: 'Telegram QR unavailable',
         vatra_pair_start_failed: 'Pair start failed',
         vatra_limit_soon_pair_start: 'Pair start limit is close. Attempts left: {remaining}.',
         vatra_limit_hit_pair_start: 'Pair start limit reached. Wait 15 minutes.',
@@ -350,6 +366,35 @@
         }
       };
     }
+    function _defineProperty(e, r, t) {
+      return (r = _toPropertyKey(r)) in e ? Object.defineProperty(e, r, {
+        value: t,
+        enumerable: true,
+        configurable: true,
+        writable: true
+      }) : e[r] = t, e;
+    }
+    function ownKeys(e, r) {
+      var t = Object.keys(e);
+      if (Object.getOwnPropertySymbols) {
+        var o = Object.getOwnPropertySymbols(e);
+        r && (o = o.filter(function (r) {
+          return Object.getOwnPropertyDescriptor(e, r).enumerable;
+        })), t.push.apply(t, o);
+      }
+      return t;
+    }
+    function _objectSpread2(e) {
+      for (var r = 1; r < arguments.length; r++) {
+        var t = null != arguments[r] ? arguments[r] : {};
+        r % 2 ? ownKeys(Object(t), true).forEach(function (r) {
+          _defineProperty(e, r, t[r]);
+        }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function (r) {
+          Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r));
+        });
+      }
+      return e;
+    }
     function _regenerator() {
       /*! regenerator-runtime -- Copyright (c) 2014-present, Facebook, Inc. -- license (MIT): https://github.com/babel/babel/blob/main/packages/babel-helpers/LICENSE */
       var e,
@@ -457,6 +502,20 @@
           writable: !t
         }) : e[r] = n : (o("next", 0), o("throw", 1), o("return", 2));
       }, _regeneratorDefine(e, r, n, t);
+    }
+    function _toPrimitive(t, r) {
+      if ("object" != typeof t || !t) return t;
+      var e = t[Symbol.toPrimitive];
+      if (void 0 !== e) {
+        var i = e.call(t, r);
+        if ("object" != typeof i) return i;
+        throw new TypeError("@@toPrimitive must return a primitive value.");
+      }
+      return ("string" === r ? String : Number)(t);
+    }
+    function _toPropertyKey(t) {
+      var i = _toPrimitive(t, "string");
+      return "symbol" == typeof i ? i : i + "";
     }
     function _typeof(o) {
       "@babel/helpers - typeof";
@@ -1014,16 +1073,121 @@
 
     function initPairing(VC) {
       VC._pairCompleteAttempts = VC._pairCompleteAttempts || {};
+      VC._pairRealtime = VC._pairRealtime || null;
+      VC._pairRealtimeTimer = VC._pairRealtimeTimer || 0;
+      VC._pairCompleteInFlight = false;
       var notePairCompleteAttempt = function notePairCompleteAttempt(code) {
         VC._pairCompleteAttempts[code] = (VC._pairCompleteAttempts[code] || 0) + 1;
         return VC._pairCompleteAttempts[code];
       };
+      var closePairRealtime = function closePairRealtime() {
+        if (VC._pairRealtimeTimer) {
+          clearTimeout(VC._pairRealtimeTimer);
+          VC._pairRealtimeTimer = 0;
+        }
+        if (VC._pairRealtime) {
+          try {
+            VC._pairRealtime.close();
+          } catch (e) {}
+          VC._pairRealtime = null;
+        }
+      };
+      var ensurePairStyles = function ensurePairStyles() {
+        if (document.getElementById('vatra-pair-style')) return;
+        var style = document.createElement('style');
+        style.id = 'vatra-pair-style';
+        style.textContent = ['.vatra-pair-modal{padding:0.2em 0 0.4em}', '.vatra-pair-code{font-size:2.2em;font-weight:700;letter-spacing:0.18em;text-align:center;margin:0.1em 0 0.55em;color:#fff}', '.vatra-pair-note{font-size:1.05em;line-height:1.45;text-align:center;color:rgba(255,255,255,.72);margin:0 0 1.2em}', '.vatra-pair-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1em}', '.vatra-pair-card{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:0.55em;padding:1em;text-align:center}', '.vatra-pair-card__title{font-size:1.05em;font-weight:700;margin-bottom:0.7em;color:#fff}', '.vatra-pair-card__qr{background:#fff;border-radius:0.45em;padding:0.5em;min-height:11em;display:flex;align-items:center;justify-content:center}', '.vatra-pair-card__qr svg{display:block;width:100%;height:auto;max-height:13em}', '.vatra-pair-card__qr img{display:block;width:100%;height:auto;max-height:13em}', '.vatra-pair-card__hint{font-size:0.85em;line-height:1.35;color:rgba(255,255,255,.58);margin-top:0.7em;word-break:break-word}', '.vatra-pair-status{margin-top:1em;text-align:center;color:rgba(255,255,255,.72)}', '@media (max-width:600px){.vatra-pair-grid{grid-template-columns:1fr}.vatra-pair-code{font-size:1.7em}}'].join('');
+        document.head.appendChild(style);
+      };
+      var remoteQrUrl = function remoteQrUrl(url) {
+        return 'https://api.qrserver.com/v1/create-qr-code/?' + ['data=' + encodeURIComponent(url), 'size=260x260', 'charset-source=UTF-8', 'charset-target=UTF-8', 'ecc=M', 'margin=10', 'format=png'].join('&');
+      };
+      var renderRemoteQr = function renderRemoteQr(element, url) {
+        element.empty();
+        var img = document.createElement('img');
+        img.alt = 'QR';
+        img.src = remoteQrUrl(url);
+        img.onerror = function () {
+          element.text(url);
+        };
+        element.append(img);
+      };
+      var renderQr = function renderQr(element, url, fallbackKey) {
+        if (!url) {
+          element.addClass('vatra-pair-card__qr--empty').text(VC.L.Lang.translate(fallbackKey));
+          return;
+        }
+        if (VC.L.Utils && VC.L.Utils.qrcode) {
+          try {
+            VC.L.Utils.qrcode(url, element, function () {
+              renderRemoteQr(element, url);
+            });
+            if (element.children().length) return;
+          } catch (e) {}
+        }
+        renderRemoteQr(element, url);
+      };
+      var showPairModal = function showPairModal(pairing) {
+        ensurePairStyles();
+        var code = pairing.code || '';
+        var html = $("\n            <div class=\"vatra-pair-modal\">\n                <div class=\"vatra-pair-code\">".concat(code, "</div>\n                <div class=\"vatra-pair-note\">").concat(VC.L.Lang.translate('vatra_pair_approve_info'), "</div>\n                <div class=\"vatra-pair-grid\">\n                    <div class=\"vatra-pair-card\">\n                        <div class=\"vatra-pair-card__title\">").concat(VC.L.Lang.translate('vatra_pair_web_qr'), "</div>\n                        <div class=\"vatra-pair-card__qr vatra-pair-card__qr--web\"></div>\n                        <div class=\"vatra-pair-card__hint\">").concat(VC.L.Lang.translate('vatra_pair_web_hint'), "</div>\n                    </div>\n                    <div class=\"vatra-pair-card\">\n                        <div class=\"vatra-pair-card__title\">").concat(VC.L.Lang.translate('vatra_pair_telegram_qr'), "</div>\n                        <div class=\"vatra-pair-card__qr vatra-pair-card__qr--telegram\"></div>\n                        <div class=\"vatra-pair-card__hint\">").concat(VC.L.Lang.translate('vatra_pair_telegram_hint'), "</div>\n                    </div>\n                </div>\n                <div class=\"vatra-pair-status\">").concat(VC.L.Lang.translate('vatra_pair_waiting'), "</div>\n            </div>\n        "));
+        renderQr(html.find('.vatra-pair-card__qr--web'), pairing.webUrl, 'vatra_pair_qr_unavailable');
+        renderQr(html.find('.vatra-pair-card__qr--telegram'), pairing.telegramUrl, 'vatra_pair_telegram_unavailable');
+        VC.L.Modal.open({
+          title: VC.L.Lang.translate('vatra_pairing_title'),
+          html: html,
+          size: 'large',
+          onBack: function onBack() {
+            VC.L.Modal.close();
+            VC.L.Controller.toggle('settings_component');
+          }
+        });
+      };
+      VC.connectPairRealtime = function (pairing) {
+        closePairRealtime();
+        if (typeof WebSocket === 'undefined' || !pairing.realtimeToken) return;
+        var expiresAt = pairing.expiresAtMs || Date.now() + (pairing.expiresInSec || 300) * 1000;
+        var remainingMs = Math.max(expiresAt - Date.now(), 0);
+        if (!remainingMs) return;
+        var path = pairing.realtimePath || '/connector/v1/pair/realtime';
+        var base = VC.apiBase().replace(/^http/, 'ws');
+        var socket = new WebSocket(base + path + '?token=' + encodeURIComponent(pairing.realtimeToken));
+        VC._pairRealtime = socket;
+        socket.onmessage = function (event) {
+          var message = {};
+          try {
+            message = JSON.parse(event.data || '{}');
+          } catch (e) {}
+          if (message.method !== 'pairing' || !message.data) return;
+          if (message.data.type !== 'approved') return;
+          VC.notify(VC.L.Lang.translate('vatra_pair_approved'));
+          VC.completePair({
+            silentPending: true
+          });
+        };
+        socket.onclose = function () {
+          if (VC._pairRealtime !== socket) return;
+          VC._pairRealtime = null;
+          if (Date.now() < expiresAt && VC.L.Storage.get(VC.KEY.pairingCode, '') === pairing.code) {
+            setTimeout(function () {
+              return VC.connectPairRealtime(_objectSpread2(_objectSpread2({}, pairing), {}, {
+                expiresAtMs: expiresAt
+              }));
+            }, 3000);
+          }
+        };
+        socket.onerror = function () {};
+        VC._pairRealtimeTimer = setTimeout(closePairRealtime, remainingMs);
+      };
       VC.completePair = function () {
+        var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
         var code = VC.L.Storage.get(VC.KEY.pairingCode, '');
         if (!code) {
           VC.notify(VC.L.Lang.translate('vatra_no_pending_pair'));
           return;
         }
+        if (VC._pairCompleteInFlight) return;
+        VC._pairCompleteInFlight = true;
 
         // Check pairing code age — reject if older than 5 minutes
         var pairTs = VC.L.Storage.get(VC.KEY.pairTs, 0);
@@ -1034,6 +1198,8 @@
           VC.notify(VC.L.Lang.translate('vatra_pair_expired'));
           VC.L.Storage.set(VC.KEY.pairingCode, '');
           VC.L.Storage.set(VC.KEY.pairTs, 0);
+          closePairRealtime();
+          VC._pairCompleteInFlight = false;
           return;
         }
         var attempts = notePairCompleteAttempt(code);
@@ -1051,7 +1217,7 @@
           }
         }).then(function (data) {
           if (data.decision && data.decision !== 'ALLOW') {
-            VC.notify(VC.L.Lang.translate('vatra_pair_status', {
+            if (!options.silentPending) VC.notify(VC.L.Lang.translate('vatra_pair_status', {
               status: data.decision
             }));
             return;
@@ -1059,12 +1225,16 @@
           if (data.session && data.session.accessToken) {
             VC.saveSession(data.session);
             delete VC._pairCompleteAttempts[code];
+            closePairRealtime();
+            if (VC.L.Modal && VC.L.Modal.opened && VC.L.Modal.opened()) VC.L.Modal.close();
             VC.notify(VC.L.Lang.translate('vatra_connected'));
             return;
           }
           VC.notify(VC.L.Lang.translate('vatra_pair_failed_no_session'));
         })["catch"](function (e) {
           VC.notify(VC.apiErrorText(e, 'vatra_pair_failed'));
+        })["finally"](function () {
+          VC._pairCompleteInFlight = false;
         });
       };
       VC.startPair = function () {
@@ -1077,7 +1247,8 @@
             deviceUid: VC.deviceUid()
           }
         }).then(function (data) {
-          var code = data.pairing ? data.pairing.code : '';
+          var pairing = data.pairing || {};
+          var code = pairing.code || '';
           if (!code) {
             VC.notify(VC.L.Lang.translate('vatra_pair_start_failed_no_code'));
             return;
@@ -1085,25 +1256,8 @@
           VC.L.Storage.set(VC.KEY.pairingCode, code);
           VC.L.Storage.set(VC.KEY.pairTs, Date.now());
           VC._pairCompleteAttempts[code] = 0;
-          VC.L.Select.show({
-            title: VC.L.Lang.translate('vatra_pairing_title'),
-            items: [{
-              title: 'Code: ' + code,
-              nosel: true
-            }, {
-              title: VC.L.Lang.translate('vatra_pair_approve_info'),
-              complete: true,
-              selected: true
-            }, {
-              title: VC.L.Lang.translate('cancel')
-            }],
-            onSelect: function onSelect(sel) {
-              if (sel.complete) VC.completePair();
-            },
-            onBack: function onBack() {
-              VC.L.Controller.toggle('settings_component');
-            }
-          });
+          VC.connectPairRealtime(pairing);
+          showPairModal(pairing);
         })["catch"](function (e) {
           VC.notify(VC.apiErrorText(e, 'vatra_pair_start_failed'));
         });
